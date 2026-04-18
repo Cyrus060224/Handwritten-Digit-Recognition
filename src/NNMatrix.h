@@ -1,16 +1,25 @@
-#pragma once
+#ifndef NN_MATRIX_H
+#define NN_MATRIX_H
+
+#include <vector>
+#include <functional>
+
+using namespace std;
 
 struct NNMatrix {
-    int rows;
-    int cols;
-    float* data;
+    int rows, cols;
+    vector<vector<double>> data;
 
-    // 构造函数 (替代 mat_create)
     NNMatrix(int r, int c);
-    // 析构函数 (替代 mat_free)
-    ~NNMatrix();
-};
+    void randomize();
 
-void mat_add(NNMatrix* m, NNMatrix* other);
-NNMatrix* mat_multiply(NNMatrix* a, NNMatrix* b);
-NNMatrix* mat_transpose(NNMatrix* m);
+    static NNMatrix multiply(const NNMatrix& a, const NNMatrix& b);
+    void add(const NNMatrix& other);
+    static NNMatrix subtract(const NNMatrix& a, const NNMatrix& b);
+    
+    void multiply_elements(const NNMatrix& other);
+    void map(function<double(double)> func);
+    NNMatrix transpose() const;
+}; // <--- 注意这个分号绝对不能少！
+
+#endif

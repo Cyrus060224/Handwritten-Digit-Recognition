@@ -1,106 +1,181 @@
 #include "neural_network.h"
-#include <iostream>
-#include <fstream>
-#include <cstdlib>
+#include <cmath>
+#include <fstream>  // 新增：用于文件读写
+#include <iostream> // 新增：用于打印保存状态
 
 using namespace std;
 
-Layer::Layer(int input_size, int output_size) {
-    weights = new NNMatrix(output_size, input_size);
-    bias = new NNMatrix(output_size, 1);
-    z = nullptr;
-    a = nullptr;
+double sigmoid(double x) {
+    return 1.0 / (1.0 + exp(-x));
+}
+
+double sigmoid_derivative(double x) {
+    double s = 1.0 / (1.0 + exp(-x));
+    return s * (1.0 - s);
+}
+
+Layer::Layer(int current_nodes, int previous_nodes) 
+    : weights(current_nodes, previous_nodes), 
+      biases(current_nodes, 1),
+      z(current_nodes, 1), 
+      a(current_nodes, 1) 
+{
+    weights.randomize();
+    biases.randomize();
+}
+
+NeuralNetwork::NeuralNetwork(vector<int> topology, double lr) : learningRate(lr) {
+    for (size_t i = 1; i < topology.size(); i++) {
+        layers.push_back(Layer(topology[i], topology[i - 1]));
+    }
+}
+
+NNMatrix NeuralNetwork::forward(NNMatrix input) {
+    NNMatrix current_activation = input;
+
+    for (size_t i = 0; i < layers.size(); i++) {
+        layers[i].z = NNMatrix::multiply(layers[i].weights, current_activation);
+        layers[i].z.add(layers[i].biases);
+        layers[i].a = layers[i].z;
+        layers[i].a.map(sigmoid); 
+        current_activation = layers[i].a;
+    }
+    return current_activation;
+}
+
+void NeuralNetwork::train(NNMatrix input, NNMatrix target) {
+    forward(input);
+
+    NNMatrix output = layers.back().a;
+    NNMatrix output_error = NNMatrix::subtract(output, target);
     
-    // 初始化权重
-    for (int i = 0; i < weights->rows * weights->cols; i++) {
-        weights->data[i] = ((float)rand() / RAND_MAX) * 0.2f - 0.1f;
-    }
-}
+    NNMatrix delta = layers.back().z;
+    delta.map(sigmoid_derivative);
+    delta.multiply_elements(output_error);
 
-Layer::~Layer() {
-    delete weights;
-    delete bias;
-    if (z) delete z;
-    if (a) delete a;
-}
-
-NeuralNetwork::NeuralNetwork(int* sizes, int count, Activation act) {
-    layer_count = count - 1;
-    layers = new Layer*[layer_count];
-    activation = act;
-    for (int i = 0; i < layer_count; i++) {
-        layers[i] = new Layer(sizes[i], sizes[i + 1]);
-    }
-}
-
-NeuralNetwork::~NeuralNetwork() {
-    for (int i = 0; i < layer_count; i++) {
-        delete layers[i];
-    }
-    delete[] layers;
-}
-
-NNMatrix* forward_propagate(NeuralNetwork* net, NNMatrix* input) {
-    NNMatrix* current_a = input;
-    for (int i = 0; i < net->layer_count; i++) {
-        Layer* L = net->layers[i];
+    for (int i = layers.size() - 1; i >= 0; i--) {
+        NNMatrix prev_a = (i == 0) ? input : layers[i - 1].a;
+        NNMatrix prev_a_T = prev_a.transpose();
+        NNMatrix weight_gradient = NNMatrix::multiply(delta, prev_a_T);
         
-        NNMatrix* wa = mat_multiply(L->weights, current_a);
-        if (L->z) delete L->z;
-        L->z = new NNMatrix(wa->rows, wa->cols);
-        for(int k=0; k<wa->rows; k++) L->z->data[k] = wa->data[k];
-        mat_add(L->z, L->bias);
-        delete wa;
+        for (int r = 0; r < layers[i].weights.rows; r++) {
+            for (int c = 0; c < layers[i].weights.cols; c++) {
+                layers[i].weights.data[r][c] -= learningRate * weight_gradient.data[r][c];
+            }
+        }
 
-        if (L->a) delete L->a;
-        L->a = new NNMatrix(L->z->rows, L->z->cols);
-        for(int k=0; k<L->z->rows; k++) L->a->data[k] = L->z->data[k];
-        apply_activation(L->a, net->activation);
+        for (int r = 0; r < layers[i].biases.rows; r++) {
+            layers[i].biases.data[r][0] -= learningRate * delta.data[r][0];
+        }
 
-        current_a = L->a;
-    }
-    return current_a;
-}
-
-void back_propagate(NeuralNetwork* net, NNMatrix* input, int label) {
-    // 反向传播核心逻辑（在此省略过长篇幅的数学推导代码，你的原始计算逻辑可直接放入）
-    // 提示：在使用完临时 NNMatrix 后，直接写 delete temp_NNMatrix; 即可
-}
-
-void save_network(NeuralNetwork* net, const string& filename) {
-    ofstream file(filename, ios::binary);
-    if (!file.is_open()) {
-        cout << "错误：无法创建模型保存文件！" << endl;
-        return;
-    }
-    file.write(reinterpret_cast<const char*>(&net->layer_count), sizeof(int));
-    for (int i = 0; i < net->layer_count; i++) {
-        Layer* L = net->layers[i];
-        file.write(reinterpret_cast<const char*>(&L->weights->rows), sizeof(int));
-        file.write(reinterpret_cast<const char*>(&L->weights->cols), sizeof(int));
-        file.write(reinterpret_cast<const char*>(L->weights->data), sizeof(float) * L->weights->rows * L->weights->cols);
-        file.write(reinterpret_cast<const char*>(L->bias->data), sizeof(float) * L->bias->rows);
-    }
-    cout << "模型已成功保存！" << endl;
-}
-
-void load_network(NeuralNetwork* net, const string& filename) {
-    ifstream file(filename, ios::binary);
-    if (!file.is_open()) {
-        cout << "未找到已保存的模型，将使用随机权重进行训练..." << endl;
-        return;
-    }
-    int saved_layers;
-    file.read(reinterpret_cast<char*>(&saved_layers), sizeof(int));
-    for (int i = 0; i < net->layer_count; i++) {
-        Layer* L = net->layers[i];
-        int r, c;
-        file.read(reinterpret_cast<char*>(&r), sizeof(int));
-        file.read(reinterpret_cast<char*>(&c), sizeof(int));
-        if (r == L->weights->rows && c == L->weights->cols) {
-            file.read(reinterpret_cast<char*>(L->weights->data), sizeof(float) * r * c);
-            file.read(reinterpret_cast<char*>(L->bias->data), sizeof(float) * r);
+        if (i > 0) {
+            NNMatrix w_T = layers[i].weights.transpose();
+            NNMatrix next_delta = NNMatrix::multiply(w_T, delta);
+            NNMatrix z_prev_derivative = layers[i - 1].z;
+            z_prev_derivative.map(sigmoid_derivative);
+            next_delta.multiply_elements(z_prev_derivative);
+            delta = next_delta;
         }
     }
-    cout << "模型参数加载成功！" << endl;
+}
+
+int NeuralNetwork::predict(NNMatrix input) {
+    NNMatrix output = forward(input);
+    int max_index = 0;
+    double max_value = output.data[0][0];
+    for (int i = 1; i < output.rows; i++) {
+        if (output.data[i][0] > max_value) {
+            max_value = output.data[i][0];
+            max_index = i;
+        }
+    }
+    return max_index;
+}
+
+double NeuralNetwork::get_accuracy(const vector<NNMatrix>& test_images, const vector<NNMatrix>& test_labels) {
+    int correct_count = 0;
+    for (size_t i = 0; i < test_images.size(); i++) {
+        int prediction = predict(test_images[i]);
+        int truth = 0;
+        for (int j = 0; j < test_labels[i].rows; j++) {
+            if (test_labels[i].data[j][0] == 1.0) {
+                truth = j;
+                break;
+            }
+        }
+        if (prediction == truth) {
+            correct_count++;
+        }
+    }
+    return (double)correct_count / test_images.size();
+}
+
+double NeuralNetwork::calculate_mse(const vector<NNMatrix>& inputs, const vector<NNMatrix>& targets) {
+    double total_mse = 0.0;
+    for (size_t i = 0; i < inputs.size(); i++) {
+        NNMatrix output = forward(inputs[i]);
+        double sample_mse = 0.0;
+        for (int j = 0; j < output.rows; j++) {
+            double error = targets[i].data[j][0] - output.data[j][0];
+            sample_mse += error * error;
+        }
+        total_mse += sample_mse / output.rows;
+    }
+    return total_mse / inputs.size();
+}
+
+// --- 新增：将权重和偏置写入文本文件 ---
+void NeuralNetwork::save_model(string filename) {
+    ofstream out(filename);
+    if (!out.is_open()) {
+        cerr << "错误：无法创建模型文件 " << filename << endl;
+        return;
+    }
+
+    out << layers.size() << "\n";
+    for (const auto& L : layers) {
+        out << L.weights.rows << " " << L.weights.cols << "\n";
+        for (int r = 0; r < L.weights.rows; r++) {
+            for (int c = 0; c < L.weights.cols; c++) {
+                out << L.weights.data[r][c] << " ";
+            }
+        }
+        out << "\n";
+        for (int r = 0; r < L.biases.rows; r++) {
+            out << L.biases.data[r][0] << " ";
+        }
+        out << "\n";
+    }
+    out.close();
+    cout << "✅ 模型权重已永久保存至: " << filename << endl;
+}
+
+// --- 新增：从文本文件恢复权重和偏置 ---
+void NeuralNetwork::load_model(string filename) {
+    ifstream in(filename);
+    if (!in.is_open()) {
+        cerr << "错误：找不到模型文件 " << filename << endl;
+        return;
+    }
+
+    int layer_count;
+    in >> layer_count;
+    layers.clear();
+
+    for (int i = 0; i < layer_count; i++) {
+        int r, c;
+        in >> r >> c;
+        Layer L(r, c); 
+        for (int i_r = 0; i_r < r; i_r++) {
+            for (int i_c = 0; i_c < c; i_c++) {
+                in >> L.weights.data[i_r][i_c];
+            }
+        }
+        for (int i_r = 0; i_r < r; i_r++) {
+            in >> L.biases.data[i_r][0];
+        }
+        layers.push_back(L);
+    }
+    in.close();
+    cout << "✅ 模型加载成功，记忆已恢复！" << endl;
 }

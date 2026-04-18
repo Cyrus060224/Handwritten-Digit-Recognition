@@ -16,12 +16,11 @@ add_subdirectory(raylib)
 
 include_directories(src)
 
-# 你的源文件列表
+# 你的源文件列表（已移除 activations.cpp）
 set(SOURCES 
     src/main.cpp 
     src/NNMatrix.cpp 
     src/data_loader.cpp 
-    src/activations.cpp 
     src/neural_network.cpp
 )
 

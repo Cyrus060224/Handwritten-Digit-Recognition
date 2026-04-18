@@ -1,53 +1,71 @@
 #include "NNMatrix.h"
-#include <iostream>
+#include <random>
 
 using namespace std;
 
-NNMatrix::NNMatrix(int r, int c) {
-    rows = r;
-    cols = c;
-    // 使用 new 分配内存，() 表示默认初始化为 0
-    data = new float[r * c](); 
-}
+NNMatrix::NNMatrix(int r, int c) : rows(r), cols(c), data(r, vector<double>(c, 0.0)) {}
 
-NNMatrix::~NNMatrix() {
-    // 使用 delete 释放内存
-    delete[] data; 
-}
-
-void mat_add(NNMatrix* m, NNMatrix* other) {
-    if (m->rows != other->rows || m->cols != other->cols) {
-        cout << "错误：矩阵加法维度不匹配！" << endl;
-        return;
-    }
-    for (int i = 0; i < m->rows * m->cols; i++) {
-        m->data[i] += other->data[i];
+void NNMatrix::randomize() {
+    static mt19937 gen(42); 
+    normal_distribution<double> dist(0.0, 0.5); 
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            data[i][j] = dist(gen);
+        }
     }
 }
 
-NNMatrix* mat_multiply(NNMatrix* a, NNMatrix* b) {
-    if (a->cols != b->rows) {
-        cout << "错误：矩阵乘法维度不匹配！" << endl;
-        return nullptr;
-    }
-    NNMatrix* result = new NNMatrix(a->rows, b->cols);
-    for (int i = 0; i < a->rows; i++) {
-        for (int j = 0; j < b->cols; j++) {
-            float sum = 0;
-            for (int k = 0; k < a->cols; k++) {
-                sum += a->data[i * a->cols + k] * b->data[k * b->cols + j];
+NNMatrix NNMatrix::multiply(const NNMatrix& a, const NNMatrix& b) {
+    NNMatrix result(a.rows, b.cols);
+    for (int i = 0; i < a.rows; i++) {
+        for (int k = 0; k < a.cols; k++) {
+            for (int j = 0; j < b.cols; j++) {
+                result.data[i][j] += a.data[i][k] * b.data[k][j];
             }
-            result->data[i * result->cols + j] = sum;
         }
     }
     return result;
 }
 
-NNMatrix* mat_transpose(NNMatrix* m) {
-    NNMatrix* result = new NNMatrix(m->cols, m->rows);
-    for (int i = 0; i < m->rows; i++) {
-        for (int j = 0; j < m->cols; j++) {
-            result->data[j * result->cols + i] = m->data[i * m->cols + j];
+void NNMatrix::add(const NNMatrix& other) {
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            this->data[i][j] += other.data[i][j];
+        }
+    }
+}
+
+NNMatrix NNMatrix::subtract(const NNMatrix& a, const NNMatrix& b) {
+    NNMatrix result(a.rows, a.cols);
+    for (int i = 0; i < a.rows; i++) {
+        for (int j = 0; j < a.cols; j++) {
+            result.data[i][j] = a.data[i][j] - b.data[i][j];
+        }
+    }
+    return result;
+}
+
+void NNMatrix::multiply_elements(const NNMatrix& other) {
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            this->data[i][j] *= other.data[i][j];
+        }
+    }
+}
+
+void NNMatrix::map(function<double(double)> func) {
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            this->data[i][j] = func(this->data[i][j]);
+        }
+    }
+}
+
+NNMatrix NNMatrix::transpose() const {
+    NNMatrix result(cols, rows);
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            result.data[j][i] = this->data[i][j];
         }
     }
     return result;
