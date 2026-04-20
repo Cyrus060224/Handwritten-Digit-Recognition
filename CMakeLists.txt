@@ -28,3 +28,11 @@ add_executable(NoobNetwork ${SOURCES})
 
 # 链接本地 raylib
 target_link_libraries(NoobNetwork PRIVATE raylib)
+
+# 每次编译完成后，自动将根目录的 data 文件夹拷贝到 build 目录下
+add_custom_command(TARGET NoobNetwork POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/data
+    ${CMAKE_BINARY_DIR}/data
+    COMMENT "Auto-copying data directory to build folder..."
+)

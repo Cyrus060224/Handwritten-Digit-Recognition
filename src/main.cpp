@@ -89,14 +89,42 @@ int main() {
                 MNISTData train_data = DataLoader::load_mnist(train_img_path, train_lbl_path);
                 
                 if (!train_data.images.empty()) {
-                    for (int epoch = 0; epoch < 5; epoch++) { 
-                        for (int i = 0; i < min(1000, (int)train_data.images.size()); i++) {
+                    int epochs = 5;
+                    // 你原代码里限制了最多训练 1000 张图，我们以此为总数
+                    int total_samples = min(1000, (int)train_data.images.size()); 
+                    
+                    cout << "\n开始训练模型... (共 " << epochs << " 轮，每轮 " << total_samples << " 个样本)" << endl;
+
+                    for (int epoch = 0; epoch < epochs; epoch++) { 
+                        cout << "Epoch " << epoch + 1 << "/" << epochs << "  ";
+                        
+                        for (int i = 0; i < total_samples; i++) {
+                            // 核心训练逻辑（完全保持你的原样）
                             nn.train(train_data.images[i], train_data.labels[i]);
+                            
+                            // 🌟 终端进度条逻辑 🌟
+                            // 每 50 个样本刷新一次，避免频繁打印拖慢速度
+                            if (i % 50 == 0 || i == total_samples - 1) {
+                                float progress = (float)(i + 1) / total_samples;
+                                int barWidth = 40;
+                                
+                                cout << "[";
+                                int pos = barWidth * progress;
+                                for (int j = 0; j < barWidth; ++j) {
+                                    if (j < pos) cout << "=";
+                                    else if (j == pos) cout << ">";
+                                    else cout << " ";
+                                }
+                                cout << "] " << int(progress * 100.0) << " %\r";
+                                cout.flush(); // 强制刷新终端输出
+                            }
                         }
+                        cout << endl; // 每一轮跑完换行
                     }
+                    
                     nn.save_model(model_path);
                     isModelLoaded = true;
-                    cout << "Training completed and saved." << endl;
+                    cout << "训练完成并已保存模型！" << endl;
                 }
             }
         }
