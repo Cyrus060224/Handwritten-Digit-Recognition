@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(NoobNetwork)
+# 永久默认开启最高性能优化，无需手动在终端输入
+set(CMAKE_BUILD_TYPE Release)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED True)

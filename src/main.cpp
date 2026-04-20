@@ -16,6 +16,61 @@ bool file_exists(const string& name) {
     return (stat(name.c_str(), &buffer) == 0);
 }
 
+// 将用户的随意手写图像转化为标准 MNIST 格式
+Image preprocess_image(Image original_img) {
+    Color* pixels = LoadImageColors(original_img);
+    int minX = original_img.width, minY = original_img.height;
+    int maxX = 0, maxY = 0;
+    bool hasInk = false;
+
+    // 1. 扫描寻找包含数字的最小边界框 (Bounding Box)
+    for (int y = 0; y < original_img.height; y++) {
+        for (int x = 0; x < original_img.width; x++) {
+            Color c = pixels[y * original_img.width + x];
+            if (c.r < 128) { // 黑色墨水（画板是白底黑字）
+                hasInk = true;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+        }
+    }
+    UnloadImageColors(pixels);
+
+    if (!hasInk) return GenImageColor(28, 28, WHITE);
+
+    // 2. 裁剪出只有数字的矩形
+    Rectangle bbox = { (float)minX, (float)minY, (float)(maxX - minX + 1), (float)(maxY - minY + 1) };
+    Image crop_img = ImageCopy(original_img);
+    ImageCrop(&crop_img, bbox);
+
+    // 3. 等比缩放到最大边长为 20
+    int new_w, new_h;
+    if (crop_img.width > crop_img.height) {
+        new_w = 20;
+        new_h = (int)((20.0f / crop_img.width) * crop_img.height);
+    } else {
+        new_h = 20;
+        new_w = (int)((20.0f / crop_img.height) * crop_img.width);
+    }
+    if (new_w == 0) new_w = 1;
+    if (new_h == 0) new_h = 1;
+    ImageResize(&crop_img, new_w, new_h);
+
+    // 4. 居中放置到一个全新的 28x28 白色画布上
+    Image final_img = GenImageColor(28, 28, WHITE);
+    int offsetX = (28 - new_w) / 2;
+    int offsetY = (28 - new_h) / 2;
+    Rectangle srcRec = { 0, 0, (float)new_w, (float)new_h };
+    Rectangle dstRec = { (float)offsetX, (float)offsetY, (float)new_w, (float)new_h };
+    
+    ImageDraw(&final_img, crop_img, srcRec, dstRec, WHITE);
+    UnloadImage(crop_img);
+
+    return final_img;
+}
+
 int main() {
     const int screenWidth = 1000;
     const int screenHeight = 620;
@@ -90,8 +145,8 @@ int main() {
                 
                 if (!train_data.images.empty()) {
                     int epochs = 5;
-                    // 你原代码里限制了最多训练 1000 张图，我们以此为总数
-                    int total_samples = min(1000, (int)train_data.images.size()); 
+                    // 移除 min() 限制，使用完整的数据集
+                    int total_samples = train_data.images.size();
                     
                     cout << "\n开始训练模型... (共 " << epochs << " 轮，每轮 " << total_samples << " 个样本)" << endl;
 
@@ -148,63 +203,29 @@ int main() {
                 // 1. 获取画板的原始图像
                 Image img = LoadImageFromTexture(canvas.texture);
                 
-                // 2. 扫描包围盒 (寻找黑色墨水的上下左右边界)
-                Color* pixels = LoadImageColors(img);
-                int min_x = img.width, min_y = img.height, max_x = 0, max_y = 0;
-                for (int y = 0; y < img.height; y++) {
-                    for (int x = 0; x < img.width; x++) {
-                        if (pixels[y * img.width + x].r < 240) { // 像素点不是纯白
-                            if (x < min_x) min_x = x;
-                            if (x > max_x) max_x = x;
-                            if (y < min_y) min_y = y;
-                            if (y > max_y) max_y = y;
-                        }
-                    }
+                // 🌟 解决 Raylib 倒影 BUG 的关键：垂直翻转图像！
+                ImageFlipVertical(&img); 
+                
+                // 2. 调用刚才写好的预处理流水线
+                Image final_img = preprocess_image(img);
+
+                // 3. 转换为神经网络输入向量 (784x1)
+                NNMatrix input(784, 1);
+                Color* final_pixels = LoadImageColors(final_img);
+                for (int i = 0; i < 784; i++) {
+                    // 白底黑字转为黑底白字（1.0代表纯黑，0.0代表纯白）
+                    float brightness = (255.0f - final_pixels[i].r) / 255.0f; 
+                    input.data[i][0] = brightness;
                 }
-                UnloadImageColors(pixels);
+                
+                // 4. 清理内存
+                UnloadImageColors(final_pixels);
+                UnloadImage(final_img);
+                UnloadImage(img);
 
-                // 3. 计算有效墨水区域的宽和高
-                int crop_w = max_x - min_x + 1;
-                int crop_h = max_y - min_y + 1;
-
-                // 防止用户没画东西就点识别导致崩溃
-                if (crop_w > 0 && crop_h > 0 && min_x <= max_x) {
-                    
-                    // 4. 裁剪出只有墨水的核心区域
-                    ImageCrop(&img, { (float)min_x, (float)min_y, (float)crop_w, (float)crop_h });
-
-                    // 5. 等比例缩放，让最长的一边恰好是 20 像素 (留出 MNIST 标准的 4 像素 Padding)
-                    float scale = 20.0f / max(crop_w, crop_h);
-                    ImageResize(&img, (int)(crop_w * scale), (int)(crop_h * scale));
-
-                    // 6. 创建一张 28x28 的全白底图，把缩放后的数字居中贴上去
-                    Image final_img = GenImageColor(28, 28, WHITE);
-                    int offset_x = (28 - img.width) / 2;
-                    int offset_y = (28 - img.height) / 2;
-                    ImageDraw(&final_img, img, 
-                              { 0, 0, (float)img.width, (float)img.height }, 
-                              { (float)offset_x, (float)offset_y, (float)img.width, (float)img.height }, 
-                              WHITE);
-
-                    // 7. 转为神经网络输入向量 (784x1，并进行颜色反转)
-                    NNMatrix input(784, 1);
-                    Color* final_pixels = LoadImageColors(final_img);
-                    for (int i = 0; i < 784; i++) {
-                        float brightness = (255.0f - final_pixels[i].r) / 255.0f; 
-                        input.data[i][0] = brightness;
-                    }
-                    
-                    // 释放内存
-                    UnloadImageColors(final_pixels);
-                    UnloadImage(final_img);
-                    UnloadImage(img);
-
-                    // 8. 喂给模型预测！
-                    recognizedDigit = nn.predict(input);
-                } else {
-                    UnloadImage(img);
-                    cout << "画板是空的，没法识别！" << endl;
-                }
+                // 5. 喂给模型预测
+                recognizedDigit = nn.predict(input);
+                
             } else {
                 cout << "请先训练或加载模型！" << endl;
             }
