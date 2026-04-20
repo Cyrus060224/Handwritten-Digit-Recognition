@@ -100,6 +100,15 @@ int main() {
     bool isTraining = false;        
     Rectangle drawingArea = { 40, 100, 400, 400 }; 
 
+    // --- 训练状态控制变量 ---
+    bool isTrainingState = false;    
+    int currentEpoch = 0;           
+    int currentImageIdx = 0;        
+    int totalEpochs = 5;            
+    int totalSamples = 0;           
+    float trainingProgress = 0.0f;  
+    MNISTData train_data; // 把数据集变量放在外面，这样整个程序都能用
+
     while (!WindowShouldClose()) {
         Vector2 mousePos = GetMousePosition();
         
@@ -108,6 +117,33 @@ int main() {
             Vector2 drawPos = { mousePos.x - drawingArea.x, mousePos.y - drawingArea.y };
             DrawCircleV(drawPos, brushSize, BLACK);
             EndTextureMode();
+        }
+
+        // --- 核心：每帧切片训练逻辑，保证 UI 不卡顿 ---
+        if (isTrainingState && !train_data.images.empty()) {
+            int batchSize = 150; // 每一帧训练 150 张图
+            
+            for (int b = 0; b < batchSize && isTrainingState; b++) {
+                // 喂一张图给神经网络
+                nn.train(train_data.images[currentImageIdx], train_data.labels[currentImageIdx]);
+                currentImageIdx++;
+
+                // 检查这一轮的 6万张图 是否跑完
+                if (currentImageIdx >= totalSamples) {
+                    currentImageIdx = 0;
+                    currentEpoch++;
+                    
+                    // 检查全部 5 轮是否跑完
+                    if (currentEpoch >= totalEpochs) {
+                        isTrainingState = false;
+                        nn.save_model(model_path); // 自动保存
+                        isModelLoaded = true;
+                        cout << "训练大功告成！" << endl;
+                    }
+                }
+            }
+            // 实时更新进度条百分比
+            trainingProgress = (float)(currentEpoch * totalSamples + currentImageIdx) / (totalEpochs * totalSamples);
         }
 
         BeginDrawing();
@@ -136,50 +172,24 @@ int main() {
         GuiLabel({ 700, 160, 80, 30 }, "Topology:");
         GuiLabel({ 780, 160, 150, 30 }, "784-128-10");
 
-        if (GuiButton({ 500, 230, 440, 40 }, "Start Training (Check Terminal)")) {
-            if (!isTraining) {
-                cout << "Check terminal for progress..." << endl;
-                string train_img_path = "data/train-images.idx3-ubyte";
-                string train_lbl_path = "data/train-labels.idx1-ubyte";
-                MNISTData train_data = DataLoader::load_mnist(train_img_path, train_lbl_path);
+        // 修改后的按钮：点击只负责“开灯”，不跑循环
+        if (GuiButton({ 500, 230, 440, 40 }, "Start Training")) {
+            if (!isTrainingState) {
+                // 1. 如果还没加载数据，就加载一次
+                if (train_data.images.empty()) {
+                    train_data = DataLoader::load_mnist("data/train-images.idx3-ubyte", "data/train-labels.idx1-ubyte");
+                }
                 
+                // 2. 启动状态机
                 if (!train_data.images.empty()) {
-                    int epochs = 5;
-                    // 移除 min() 限制，使用完整的数据集
-                    int total_samples = train_data.images.size();
-                    
-                    cout << "\n开始训练模型... (共 " << epochs << " 轮，每轮 " << total_samples << " 个样本)" << endl;
-
-                    for (int epoch = 0; epoch < epochs; epoch++) { 
-                        cout << "Epoch " << epoch + 1 << "/" << epochs << "  ";
-                        
-                        for (int i = 0; i < total_samples; i++) {
-                            // 核心训练逻辑（完全保持你的原样）
-                            nn.train(train_data.images[i], train_data.labels[i]);
-                            
-                            // 🌟 终端进度条逻辑 🌟
-                            // 每 50 个样本刷新一次，避免频繁打印拖慢速度
-                            if (i % 50 == 0 || i == total_samples - 1) {
-                                float progress = (float)(i + 1) / total_samples;
-                                int barWidth = 40;
-                                
-                                cout << "[";
-                                int pos = barWidth * progress;
-                                for (int j = 0; j < barWidth; ++j) {
-                                    if (j < pos) cout << "=";
-                                    else if (j == pos) cout << ">";
-                                    else cout << " ";
-                                }
-                                cout << "] " << int(progress * 100.0) << " %\r";
-                                cout.flush(); // 强制刷新终端输出
-                            }
-                        }
-                        cout << endl; // 每一轮跑完换行
-                    }
-                    
-                    nn.save_model(model_path);
-                    isModelLoaded = true;
-                    cout << "训练完成并已保存模型！" << endl;
+                    isTrainingState = true;
+                    currentEpoch = 0;
+                    currentImageIdx = 0;
+                    totalSamples = train_data.images.size();
+                    trainingProgress = 0.0f;
+                    cout << "UI 训练已启动..." << endl;
+                } else {
+                    cout << "错误：无法加载数据集，请检查 data 目录！" << endl;
                 }
             }
         }
@@ -240,6 +250,19 @@ int main() {
             DrawText(resText.c_str(), 500, 535, 40, DARKBLUE);
         } else {
             DrawText("Waiting for input...", 500, 545, 30, DARKGRAY);
+        }
+
+        // --- 在屏幕底部绘制 UI 进度条 ---
+        if (isTrainingState) {
+            // 画一个半透明的底色框
+            DrawRectangle(0, 530, screenWidth, 90, Fade(LIGHTGRAY, 0.8f));
+            
+            float progPerc = trainingProgress * 100.0f;
+            // 调用 Raygui 画出动态进度条
+            GuiProgressBar({ 50, 565, 900, 30 }, "PROGRESS", TextFormat("%.1f%%", progPerc), &progPerc, 0, 100);
+            
+            // 显示当前是在第几个 Epoch
+            DrawText(TextFormat("Training Epoch: %d / %d", currentEpoch + 1, totalEpochs), 50, 540, 20, DARKGRAY);
         }
 
         EndDrawing();
