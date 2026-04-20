@@ -138,7 +138,7 @@ int main() {
                         isTrainingState = false;
                         nn.save_model(model_path); // 自动保存
                         isModelLoaded = true;
-                        cout << "训练大功告成！" << endl;
+                        cout << "Training completed and model saved!" << endl;
                     }
                 }
             }
@@ -187,9 +187,9 @@ int main() {
                     currentImageIdx = 0;
                     totalSamples = train_data.images.size();
                     trainingProgress = 0.0f;
-                    cout << "UI 训练已启动..." << endl;
+                    cout << "UI Training started..." << endl;
                 } else {
-                    cout << "错误：无法加载数据集，请检查 data 目录！" << endl;
+                    cout << "Error: Cannot load dataset. Please check data/ directory!" << endl;
                 }
             }
         }
@@ -237,7 +237,7 @@ int main() {
                 recognizedDigit = nn.predict(input);
                 
             } else {
-                cout << "请先训练或加载模型！" << endl;
+                cout << "Please train or load a model first!" << endl;
             }
         }
 

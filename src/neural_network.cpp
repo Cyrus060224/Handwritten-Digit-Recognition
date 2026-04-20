@@ -128,7 +128,7 @@ double NeuralNetwork::calculate_mse(const vector<NNMatrix>& inputs, const vector
 void NeuralNetwork::save_model(string filename) {
     ofstream out(filename);
     if (!out.is_open()) {
-        cerr << "错误：无法创建模型文件 " << filename << endl;
+        cerr << "Error: Cannot create model file " << filename << endl;
         return;
     }
 
@@ -147,7 +147,7 @@ void NeuralNetwork::save_model(string filename) {
         out << "\n";
     }
     out.close();
-    cout << "✅ 模型权重已永久保存至: " << filename << endl;
+    cout << "Success: Model weights permanently saved to: " << filename << endl;
 }
 
 // --- 新增：从文本文件恢复权重和偏置 ---
