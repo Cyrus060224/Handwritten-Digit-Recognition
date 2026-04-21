@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <vector>
 #include "raylib.h"
 
 #define RAYGUI_IMPLEMENTATION
@@ -77,11 +78,11 @@ int main() {
     InitWindow(screenWidth, screenHeight, "Mini-Digits - Neural Network");
     SetTargetFPS(60);
     
-    // 使用默认 UI 样式，摒弃外部字体依赖带来的不确定性
     GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
 
     vector<int> topology = {784, 128, 10};
-    NeuralNetwork nn(topology, 0.05);
+    // 🌟 修改点 1：初始学习率设为 0.01，更加稳妥
+    NeuralNetwork nn(topology, 0.01);
     bool isModelLoaded = false; 
     string model_path = "data/trained_model.txt";
     
@@ -97,7 +98,6 @@ int main() {
 
     float brushSize = 15.0f;
     int recognizedDigit = -1;       
-    bool isTraining = false;        
     Rectangle drawingArea = { 40, 100, 400, 400 }; 
 
     // --- 训练状态控制变量 ---
@@ -107,7 +107,13 @@ int main() {
     int totalEpochs = 5;            
     int totalSamples = 0;           
     float trainingProgress = 0.0f;  
-    MNISTData train_data; // 把数据集变量放在外面，这样整个程序都能用
+    MNISTData train_data; 
+
+    // --- 贪心算法 (Bold Driver) 状态变量 ---
+    double previous_loss = 999999.0; 
+    const double LR_INCREASE = 1.01; // 温和加速
+    const double LR_DECREASE = 0.98; // 温和减速
+    double current_batch_loss = 0.0; 
 
     while (!WindowShouldClose()) {
         Vector2 mousePos = GetMousePosition();
@@ -119,30 +125,64 @@ int main() {
             EndTextureMode();
         }
 
-        // --- 核心：每帧切片训练逻辑，保证 UI 不卡顿 ---
+        // =======================================================
+        // --- 核心：每帧切片训练逻辑 + 贪心算法 (Bold Driver) ---
+        // =======================================================
         if (isTrainingState && !train_data.images.empty()) {
-            int batchSize = 150; // 每一帧训练 150 张图
+            int batchSize = 150; 
+            double batch_loss_sum = 0.0; 
             
             for (int b = 0; b < batchSize && isTrainingState; b++) {
-                // 喂一张图给神经网络
-                nn.train(train_data.images[currentImageIdx], train_data.labels[currentImageIdx]);
+                NNMatrix input = train_data.images[currentImageIdx];
+                NNMatrix target = train_data.labels[currentImageIdx];
+
+                // 1. 计算单张样本的误差并累加
+                NNMatrix output = nn.forward(input);
+                NNMatrix diff = NNMatrix::subtract(target, output);
+                double sample_loss = 0.0;
+                for (int r = 0; r < diff.rows; r++) {
+                    sample_loss += diff.data[r][0] * diff.data[r][0]; 
+                }
+                batch_loss_sum += sample_loss; 
+
+                // 2. 执行训练（反向传播更新权重）
+                nn.train(input, target);
+                
                 currentImageIdx++;
 
-                // 检查这一轮的 6万张图 是否跑完
+                // 检查这一轮是否跑完
                 if (currentImageIdx >= totalSamples) {
                     currentImageIdx = 0;
                     currentEpoch++;
                     
-                    // 检查全部 5 轮是否跑完
                     if (currentEpoch >= totalEpochs) {
                         isTrainingState = false;
-                        nn.save_model(model_path); // 自动保存
+                        nn.save_model(model_path); 
                         isModelLoaded = true;
                         cout << "Training completed and model saved!" << endl;
                     }
                 }
             }
-            // 实时更新进度条百分比
+
+            // 3. 计算这 150 张图的“平均误差”
+            current_batch_loss = batch_loss_sum / batchSize; 
+
+            // 4. 温和的贪心策略判定
+            if (previous_loss != 999999.0) { 
+                if (current_batch_loss < previous_loss) {
+                    nn.learningRate *= LR_INCREASE; 
+                } else if (current_batch_loss > previous_loss) {
+                    nn.learningRate *= LR_DECREASE; 
+                }
+            }
+            
+            // 🌟 修改点 2：极其关键的上下限保护锁
+            if (nn.learningRate > 0.1) nn.learningRate = 0.1;
+            if (nn.learningRate < 0.001) nn.learningRate = 0.001;
+
+            previous_loss = current_batch_loss;
+
+            // 更新 UI 进度条
             trainingProgress = (float)(currentEpoch * totalSamples + currentImageIdx) / (totalEpochs * totalSamples);
         }
 
@@ -167,29 +207,32 @@ int main() {
         GuiLabel({ 580, 110, 250, 30 }, isModelLoaded ? "Loaded (trained_model.txt)" : "Not Ready (Needs Training)");
 
         GuiLabel({ 500, 160, 100, 30 }, "LR Policy:");
-        GuiLabel({ 600, 160, 80, 30 }, "Adaptive"); 
+        GuiLabel({ 600, 160, 120, 30 }, "Greedy Adaptive"); 
         
-        GuiLabel({ 700, 160, 80, 30 }, "Topology:");
-        GuiLabel({ 780, 160, 150, 30 }, "784-128-10");
+        GuiLabel({ 730, 160, 80, 30 }, "Topology:");
+        GuiLabel({ 810, 160, 150, 30 }, "784-128-10");
 
-        // 修改后的按钮：点击只负责“开灯”，不跑循环
-        if (GuiButton({ 500, 230, 440, 40 }, "Start Training")) {
+        if (GuiButton({ 500, 230, 440, 40 }, isTrainingState ? "TRAINING IN PROGRESS..." : "Start Training")) {
             if (!isTrainingState) {
-                // 1. 如果还没加载数据，就加载一次
                 if (train_data.images.empty()) {
+                    BeginDrawing();
+                    ClearBackground(GetColor(GuiGetStyle(DEFAULT, BACKGROUND_COLOR)));
+                    DrawText("Loading MNIST Dataset... Please wait.", 300, 300, 20, DARKGRAY);
+                    EndDrawing();
+
                     train_data = DataLoader::load_mnist("data/train-images.idx3-ubyte", "data/train-labels.idx1-ubyte");
                 }
                 
-                // 2. 启动状态机
                 if (!train_data.images.empty()) {
                     isTrainingState = true;
                     currentEpoch = 0;
                     currentImageIdx = 0;
                     totalSamples = train_data.images.size();
                     trainingProgress = 0.0f;
-                    cout << "UI Training started..." << endl;
-                } else {
-                    cout << "Error: Cannot load dataset. Please check data/ directory!" << endl;
+                    
+                    // 🌟 修改点 3：每次重新训练都必须重置状态
+                    previous_loss = 999999.0; 
+                    nn.learningRate = 0.01; 
                 }
             }
         }
@@ -210,34 +253,22 @@ int main() {
 
         if (GuiButton({ 740, 400, 200, 40 }, "Recognize")) {
             if (isModelLoaded) {
-                // 1. 获取画板的原始图像
                 Image img = LoadImageFromTexture(canvas.texture);
-                
-                // 🌟 解决 Raylib 倒影 BUG 的关键：垂直翻转图像！
                 ImageFlipVertical(&img); 
-                
-                // 2. 调用刚才写好的预处理流水线
                 Image final_img = preprocess_image(img);
 
-                // 3. 转换为神经网络输入向量 (784x1)
                 NNMatrix input(784, 1);
                 Color* final_pixels = LoadImageColors(final_img);
                 for (int i = 0; i < 784; i++) {
-                    // 白底黑字转为黑底白字（1.0代表纯黑，0.0代表纯白）
                     float brightness = (255.0f - final_pixels[i].r) / 255.0f; 
                     input.data[i][0] = brightness;
                 }
                 
-                // 4. 清理内存
                 UnloadImageColors(final_pixels);
                 UnloadImage(final_img);
                 UnloadImage(img);
 
-                // 5. 喂给模型预测
                 recognizedDigit = nn.predict(input);
-                
-            } else {
-                cout << "Please train or load a model first!" << endl;
             }
         }
 
@@ -252,17 +283,19 @@ int main() {
             DrawText("Waiting for input...", 500, 545, 30, DARKGRAY);
         }
 
-        // --- 在屏幕底部绘制 UI 进度条 ---
+        // =======================================================
+        // --- 底部训练进度条与贪心算法状态显示 ---
+        // =======================================================
         if (isTrainingState) {
-            // 画一个半透明的底色框
-            DrawRectangle(0, 530, screenWidth, 90, Fade(LIGHTGRAY, 0.8f));
+            DrawRectangle(0, 530, screenWidth, 90, Fade(LIGHTGRAY, 0.9f));
             
             float progPerc = trainingProgress * 100.0f;
-            // 调用 Raygui 画出动态进度条
             GuiProgressBar({ 50, 565, 900, 30 }, "PROGRESS", TextFormat("%.1f%%", progPerc), &progPerc, 0, 100);
             
-            // 显示当前是在第几个 Epoch
-            DrawText(TextFormat("Training Epoch: %d / %d", currentEpoch + 1, totalEpochs), 50, 540, 20, DARKGRAY);
+            // 🌟 修改点 4：文本显示调整为 Batch Loss
+            string statusInfo = TextFormat("Epoch: %d/%d | LR: %.6f | Batch Loss: %.4f", 
+                                           currentEpoch + 1, totalEpochs, nn.learningRate, current_batch_loss);
+            DrawText(statusInfo.c_str(), 50, 540, 20, DARKGREEN);
         }
 
         EndDrawing();
