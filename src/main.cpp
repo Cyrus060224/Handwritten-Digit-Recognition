@@ -129,6 +129,23 @@ int main() {
     const int screenHeight = 900; 
     InitWindow(screenWidth, screenHeight, "NoobNetwork - Pro Complete Edition");
     SetTargetFPS(60);
+
+    // 🌟 ==========================================
+    // 🌟 字体替换核心逻辑：跨平台高清抗锯齿
+    // 🌟 ==========================================
+    Font customFont = GetFontDefault(); // 保底方案：先拿到默认字体
+    string font_path = "data/ui_font.ttf";
+    
+    if (file_exists(font_path)) {
+        // 加载 TTF，基础字号设大一点（比如 32），这样缩小显示会极其平滑
+        customFont = LoadFontEx(font_path.c_str(), 32, 0, 0); 
+        // 开启双线性过滤（极其关键，这是告别狗牙锯齿的核心）
+        SetTextureFilter(customFont.texture, TEXTURE_FILTER_BILINEAR); 
+        // 告诉 Raygui 全局使用这个新字体
+        GuiSetFont(customFont);
+    } else {
+        cout << "Warning: Custom font not found at " << font_path << ". Using default." << endl;
+    }
     
     GuiSetStyle(DEFAULT, TEXT_SIZE, 15); 
 
@@ -687,7 +704,8 @@ int main() {
         EndDrawing();
     }
     
-    UnloadRenderTexture(canvas); 
+    UnloadRenderTexture(canvas);
+    UnloadFont(customFont); // 🌟 退出前释放自定义字体内存，防止内存泄漏 
     CloseWindow(); 
     return 0;
 }
