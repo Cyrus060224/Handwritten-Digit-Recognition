@@ -22,7 +22,17 @@ NeuralNetwork::NeuralNetwork(vector<int> topology, double lr, ActivationType act
     for (size_t i = 1; i < topology.size(); i++) {
         layers.push_back(Layer(topology[i], topology[i - 1]));
     }
-    reset_gradients(); 
+    reset_gradients();
+    backup_layers = layers; // 🌟 初始化时保存初代快照 
+}
+
+// 🌟 贪心快照的具体实现（vector 自动深拷贝）
+void NeuralNetwork::save_checkpoint() { 
+    backup_layers = layers; 
+}
+
+void NeuralNetwork::load_checkpoint() { 
+    layers = backup_layers; 
 }
 
 NNMatrix NeuralNetwork::forward(NNMatrix input, bool is_training) {
@@ -95,9 +105,10 @@ void NeuralNetwork::accumulate_gradients(NNMatrix input, NNMatrix target) {
 
 void NeuralNetwork::apply_gradients() {
     if (accumulated_samples == 0) return;
+
+    double lr = learningRate / (double)accumulated_samples;
     
-    for (size_t i = 0; i < layers.size(); i++) {
-        double lr = learningRate / accumulated_samples; 
+    for (size_t i = 0; i < layers.size(); i++) { 
         
         weight_gradients_acc[i].map([lr](double x) { return x * lr; });
         bias_gradients_acc[i].map([lr](double x) { return x * lr; });

@@ -24,8 +24,10 @@ bool file_exists(const string& name) {
 // --- 图像预处理 ---
 Image preprocess_image(Image original_img) {
     Color* pixels = LoadImageColors(original_img);
-    int minX = original_img.width, minY = original_img.height;
-    int maxX = 0, maxY = 0;
+    int minX = original_img.width;
+    int minY = original_img.height;
+    int maxX = 0;
+    int maxY = 0;
     bool hasInk = false;
 
     for (int y = 0; y < original_img.height; y++) {
@@ -123,29 +125,37 @@ struct SearchConfig {
 };
 
 int main() {
-    // 保持 1200x900 经典尺寸
     const int screenWidth = 1200;
     const int screenHeight = 900; 
-    InitWindow(screenWidth, screenHeight, "NoobNetwork - Pro Compact Suite");
+    InitWindow(screenWidth, screenHeight, "NoobNetwork - Pro Complete Edition");
     SetTargetFPS(60);
     
     GuiSetStyle(DEFAULT, TEXT_SIZE, 15); 
 
     // --- UI 控制变量 ---
-    int h1Nodes = 128, h2Nodes = 0;      
-    bool h1EditMode = false, h2EditMode = false, maxEpochEdit = false;
+    int h1Nodes = 128;
+    int h2Nodes = 0;      
+    bool h1EditMode = false;
+    bool h2EditMode = false;
+    bool maxEpochEdit = false;
     float dropoutRate = 0.0f; 
     int maxEpochs = 5;
     bool enableEarlyStopping = true; 
+    bool enableGreedy = true; // 🌟 需求 10: 贪心自适应学习率开关
 
     // --- AutoML 配置变量 ---
     int k_folds = 5;
     bool kFoldEdit = false;
     int activeSearchType = 0; 
     
-    int lrMinInt = 1, lrMaxInt = 5; 
-    int hMin = 64, hMax = 256;
-    bool lrMinEdit = false, lrMaxEdit = false, hMinEdit = false, hMaxEdit = false;
+    int lrMinInt = 1;
+    int lrMaxInt = 5; 
+    int hMin = 64;
+    int hMax = 256;
+    bool lrMinEdit = false;
+    bool lrMaxEdit = false;
+    bool hMinEdit = false;
+    bool hMaxEdit = false;
 
     // --- AutoML 状态变量 ---
     bool isAutoSearching = false;
@@ -166,11 +176,17 @@ int main() {
         isModelLoaded = true; 
     }
 
-    MNISTData train_data, test_data;
+    MNISTData train_data;
+    MNISTData test_data;
     bool isTrainingState = false;
-    int currentEpoch = 0, currentImgIdx = 0, totalSamples = 0;
-    float testAccuracy = 0.0f, trainingProgress = 0.0f;
-    int recognizedDigit = -1, activeAct = 0, activeOpt = 1;
+    int currentEpoch = 0;
+    int currentImgIdx = 0;
+    int totalSamples = 0;
+    float testAccuracy = 0.0f;
+    float trainingProgress = 0.0f;
+    int recognizedDigit = -1;
+    int activeAct = 0;
+    int activeOpt = 1;
 
     double previous_loss = 999999.0;
     double smoothed_loss = 0.0;
@@ -180,9 +196,11 @@ int main() {
     vector<float> lossHistory; 
     vector<float> accHistory;
     const int maxPoints = 200;           
-    int metric_counter = 0, metric_correct = 0;             
+    int metric_counter = 0;
+    int metric_correct = 0;             
     double metric_loss_accum = 0.0;     
-    float displayLoss = 0.0f, displayAcc = 0.0f;   
+    float displayLoss = 0.0f;
+    float displayAcc = 0.0f;   
 
     float best_val_loss = 9999.0f;
     int patience_counter = 0;
@@ -190,14 +208,16 @@ int main() {
     bool triggered_early_stop = false;
 
     RenderTexture2D canvas = LoadRenderTexture(440, 440);
-    BeginTextureMode(canvas); ClearBackground(RAYWHITE); EndTextureMode();
+    BeginTextureMode(canvas); 
+    ClearBackground(RAYWHITE); 
+    EndTextureMode();
 
     while (!WindowShouldClose()) {
         
         bool isProcessing = isTrainingState || isAutoSearching;
 
         // ============================================================
-        // 引擎训练循环 (完全展开版)
+        // 引擎训练循环 (完全展开，包含完整贪心策略)
         // ============================================================
         if (isProcessing && !train_data.images.empty()) {
             int frame_processing_size = 250; 
@@ -221,7 +241,8 @@ int main() {
                 accumulated_loss_for_gradient += sample_loss;
                 metric_loss_accum += sample_loss;
 
-                int maxIdx = 0, trueIdx = 0;
+                int maxIdx = 0;
+                int trueIdx = 0;
                 double maxVal = output.data[0][0];
                 for(int i = 0; i < 10; i++) {
                     if(output.data[i][0] > maxVal) { 
@@ -232,14 +253,23 @@ int main() {
                         trueIdx = i;
                     }
                 }
+                
                 if(maxIdx == trueIdx) {
                     metric_correct++;
                 }
 
                 nn.accumulate_gradients(input, target);
                 
+                // --- 批次权重更新与贪心策略判定 ---
                 if (nn.accumulated_samples >= target_batch_size) {
+                    
+                    // 🌟 贪心快照备份 (在应用新梯度前)
+                    if (enableGreedy && !isAutoSearching) {
+                        nn.save_checkpoint();
+                    }
+
                     nn.apply_gradients();
+                    
                     double avg_update_loss = accumulated_loss_for_gradient / (double)target_batch_size;
                     accumulated_loss_for_gradient = 0.0; 
 
@@ -249,18 +279,38 @@ int main() {
                         smoothed_loss = 0.05 * avg_update_loss + 0.95 * smoothed_loss;
                     }
 
-                    if (!isAutoSearching) { 
-                        if (previous_loss != 999999.0) {
-                            if (smoothed_loss < previous_loss) nn.learningRate *= 1.01;
-                            else nn.learningRate *= 0.99;
+                    // 🌟 严谨修复后的贪心自适应策略
+                    if (!isAutoSearching && previous_loss != 999999.0) {
+                        if (smoothed_loss <= previous_loss) {
+                            // 损失下降 (赚了)：接收更新，尝试拉大学习率
+                            if (enableGreedy) {
+                                nn.learningRate *= 1.05; 
+                            } else {
+                                nn.learningRate *= 1.01;
+                            }
+                            previous_loss = smoothed_loss; // 只有成功才更新历史记录
+                        } else {
+                            // 损失上升或震荡 (亏了)
+                            if (enableGreedy) {
+                                nn.load_checkpoint(); // 🌟 撤销权重更新，防止发散
+                                nn.learningRate *= 0.5; // 🌟 缩小步幅
+                                smoothed_loss = previous_loss; // 🌟 撤销被恶化的 Loss 记录！
+                            } else {
+                                nn.learningRate *= 0.99;
+                                previous_loss = smoothed_loss;
+                            }
                         }
+                        
+                        // 学习率越界保护
                         if (nn.learningRate > 0.1) nn.learningRate = 0.1;
-                        if (nn.learningRate < 0.001) nn.learningRate = 0.001;
+                        if (nn.learningRate < 0.0001) nn.learningRate = 0.0001;
+                    } else {
+                        // 初始化第一帧
+                        previous_loss = smoothed_loss;
                     }
-                    previous_loss = smoothed_loss;
                 }
 
-                // UI 曲线采样器
+                // UI 曲线独立采样器
                 metric_counter++;
                 if (metric_counter >= 300) {
                     float avg_metric_loss = (float)(metric_loss_accum / 300.0);
@@ -280,6 +330,7 @@ int main() {
                         accHistory.erase(accHistory.begin());
                     }
 
+                    // 早停检测
                     if (isTrainingState && enableEarlyStopping) {
                         if (displayLoss < best_val_loss - 0.001f) {
                             best_val_loss = displayLoss;
@@ -301,6 +352,7 @@ int main() {
                     metric_loss_accum = 0.0;
                 }
 
+                // 批次游标推进
                 currentImgIdx++;
                 int limit = isAutoSearching ? (int)currentFolds[foldIdx].train_indices.size() : totalSamples;
 
@@ -358,11 +410,11 @@ int main() {
         }
 
         // ============================================================
-        // 渲染与 UI 绘制
+        // 渲染与对齐 UI 绘制
         // ============================================================
         BeginDrawing();
         ClearBackground(GetColor((unsigned int)GuiGetStyle(DEFAULT, BACKGROUND_COLOR)));
-        DrawText("NoobNetwork: MNIST Pro Compact", 35, 20, 24, DARKGRAY);
+        DrawText("NoobNetwork: MNIST Pro Complete", 35, 20, 24, DARKGRAY);
 
         // --- 左侧：画板 ---
         GuiGroupBox({ 35, 60, 460, 530 }, "Drawing Canvas & Tools");
@@ -410,12 +462,10 @@ int main() {
         float cY = 85.0f;
         float rowHeight = 40.0f; 
 
-        // 🌟 核心修复 1: GuiToggleGroup 宽度为“单按钮宽度”。
-        // Activation 有 3 个选项，每个给 70，总宽度 210。结束于 cpX + 100 + 210 = cpX + 310
+        // 按钮宽度精准控制
         GuiLabel({ cpX + 20, cY, 80, 30 }, "Activation:");
         GuiToggleGroup({ cpX + 100, cY, 70, 30 }, "SIGMOID;RELU;TANH", &activeAct); 
         
-        // Optimizer 有 3 个选项，每个给 80，总宽度 240。结束于 cpX + 390 + 240 = cpX + 630。完美在 650 内部。
         GuiLabel({ cpX + 320, cY, 70, 30 }, "Optimizer:");
         GuiToggleGroup({ cpX + 390, cY, 80, 30 }, "SGD;MINI-BATCH;BGD", &activeOpt); 
 
@@ -432,7 +482,8 @@ int main() {
         cY += rowHeight;
         GuiLabel({ cpX + 20, cY, 80, 30 }, "Max Epochs:");
         if (GuiValueBox({ cpX + 100, cY, 70, 30 }, NULL, &maxEpochs, 1, 100, maxEpochEdit)) maxEpochEdit = !maxEpochEdit;
-        GuiCheckBox({ cpX + 190, cY + 5, 20, 20 }, "Enable Early Stopping Mechanism", &enableEarlyStopping);
+        GuiCheckBox({ cpX + 190, cY + 5, 20, 20 }, "Enable Early Stopping", &enableEarlyStopping);
+        GuiCheckBox({ cpX + 420, cY + 5, 20, 20 }, "Greedy Bold Driver (Req.10)", &enableGreedy);
 
         cY += rowHeight + 10.0f;
         if (GuiButton({ cpX + 20, cY, 290, 40 }, isTrainingState ? "STOP" : "START MANUAL TRAINING")) {
@@ -520,12 +571,9 @@ int main() {
         if (GuiValueBox({ cpX + 420, cY, 60, 30 }, NULL, &hMax, 10, 512, hMaxEdit)) hMaxEdit = !hMaxEdit;
 
         cY += rowHeight;
-        
-        // 🌟 核心修复 2: Strategy 有 2 个选项，每个给 90，总宽度 180。结束于 cpX + 90 + 180 = cpX + 270
         GuiLabel({ cpX + 20, cY, 70, 30 }, "Strategy:");
         GuiToggleGroup({ cpX + 90, cY, 90, 30 }, "GRID;RANDOM", &activeSearchType);
         
-        // K-Fold 紧随其后，从 cpX + 290 开始，完美避开
         GuiLabel({ cpX + 290, cY, 60, 30 }, "K-Fold:");
         if (GuiValueBox({ cpX + 350, cY, 80, 30 }, NULL, &k_folds, 2, 10, kFoldEdit)) kFoldEdit = !kFoldEdit;
 
