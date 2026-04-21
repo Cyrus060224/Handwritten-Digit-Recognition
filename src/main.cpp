@@ -279,10 +279,10 @@ int main() {
                         smoothed_loss = 0.05 * avg_update_loss + 0.95 * smoothed_loss;
                     }
 
-                    // 🌟 严谨修复后的贪心自适应策略
+                    // 🌟 严谨修复后的贪心自适应策略（包含 5% 容忍度）
                     if (!isAutoSearching && previous_loss != 999999.0) {
-                        if (smoothed_loss <= previous_loss) {
-                            // 损失下降 (赚了)：接收更新，尝试拉大学习率
+                        if (smoothed_loss <= previous_loss * 1.05) { // 🌟 加入 5% 的噪声宽容度
+                            // 损失下降或微微波动：接收更新，尝试拉大学习率
                             if (enableGreedy) {
                                 nn.learningRate *= 1.05; 
                             } else {
@@ -290,7 +290,7 @@ int main() {
                             }
                             previous_loss = smoothed_loss; // 只有成功才更新历史记录
                         } else {
-                            // 损失上升或震荡 (亏了)
+                            // 损失明显上升 (亏了)
                             if (enableGreedy) {
                                 nn.load_checkpoint(); // 🌟 撤销权重更新，防止发散
                                 nn.learningRate *= 0.5; // 🌟 缩小步幅
@@ -330,22 +330,6 @@ int main() {
                         accHistory.erase(accHistory.begin());
                     }
 
-                    // 早停检测
-                    if (isTrainingState && enableEarlyStopping) {
-                        if (displayLoss < best_val_loss - 0.001f) {
-                            best_val_loss = displayLoss;
-                            patience_counter = 0; 
-                        } else {
-                            patience_counter++; 
-                        }
-
-                        if (patience_counter >= MAX_PATIENCE) {
-                            isTrainingState = false;
-                            triggered_early_stop = true;
-                            nn.save_model(model_path);
-                            isModelLoaded = true;
-                        }
-                    }
 
                     metric_counter = 0; 
                     metric_correct = 0; 
@@ -364,6 +348,24 @@ int main() {
                         nn.apply_gradients(); 
                         accumulated_loss_for_gradient = 0.0; 
                     }
+
+                    if (isTrainingState && enableEarlyStopping && !isAutoSearching) {
+                        if (smoothed_loss < best_val_loss - 0.0001f) {
+                            best_val_loss = smoothed_loss;
+                            patience_counter = 0; 
+                        } else {
+                            patience_counter++; 
+                        }
+        
+                        // 容忍 3 个 Epoch 没有进步就结束
+                        if (patience_counter >= 3) {
+                        isTrainingState = false;
+                        triggered_early_stop = true;
+                        nn.save_model(model_path);
+                        isModelLoaded = true;
+                        break; // 跳出当前训练循环
+                        }
+                }
                     
                     if (isAutoSearching && currentEpoch >= 1) { 
                         float vAcc = 0;
@@ -482,8 +484,10 @@ int main() {
         cY += rowHeight;
         GuiLabel({ cpX + 20, cY, 80, 30 }, "Max Epochs:");
         if (GuiValueBox({ cpX + 100, cY, 70, 30 }, NULL, &maxEpochs, 1, 100, maxEpochEdit)) maxEpochEdit = !maxEpochEdit;
-        GuiCheckBox({ cpX + 190, cY + 5, 20, 20 }, "Enable Early Stopping", &enableEarlyStopping);
-        GuiCheckBox({ cpX + 420, cY + 5, 20, 20 }, "Greedy Bold Driver (Req.10)", &enableGreedy);
+        GuiCheckBox({ cpX + 185, cY + 5, 20, 20 }, "Early Stop", &enableEarlyStopping);
+        
+        // 🌟 修复 UI 重叠：坐标已精确调整为 cpX + 340
+        GuiCheckBox({ cpX + 340, cY + 5, 20, 20 }, "Greedy Bold Driver (Req.10)", &enableGreedy);
 
         cY += rowHeight + 10.0f;
         if (GuiButton({ cpX + 20, cY, 290, 40 }, isTrainingState ? "STOP" : "START MANUAL TRAINING")) {

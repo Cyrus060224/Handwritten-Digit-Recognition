@@ -22,7 +22,7 @@ struct Layer {
 
 struct NeuralNetwork {
     vector<Layer> layers;
-    vector<Layer> backup_layers; // 🌟 需求 10：贪心策略的权重快照
+    vector<Layer> backup_layers; // 🌟 需求 10：贪心策略的权重快照备份
     
     double learningRate;
     ActivationType hidden_activation;

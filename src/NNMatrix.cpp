@@ -5,16 +5,19 @@ using namespace std;
 
 NNMatrix::NNMatrix(int r, int c) : rows(r), cols(c), data(r, vector<double>(c, 0.0)) {}
 
+// 在 NNMatrix.cpp 中找到这个函数并修改
 void NNMatrix::randomize() {
     static mt19937 gen(42); 
-    normal_distribution<double> dist(0.0, 0.5); 
+    // 🌟 核心修改：Xavier 初始化。不要用固定的 0.5，要根据输入的节点数缩小方差
+    double limit = sqrt(1.0 / (double)cols); 
+    normal_distribution<double> dist(0.0, limit); // 让权重变得极小，防止 Sigmoid 饱和
+
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             data[i][j] = dist(gen);
         }
     }
 }
-
 NNMatrix NNMatrix::multiply(const NNMatrix& a, const NNMatrix& b) {
     NNMatrix result(a.rows, b.cols);
     for (int i = 0; i < a.rows; i++) {
