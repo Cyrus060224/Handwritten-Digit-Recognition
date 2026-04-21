@@ -2,17 +2,10 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include "activations.h" // 🌟 引入我们刚才写的武器库
 
 using namespace std;
 
-double sigmoid(double x) {
-    return 1.0 / (1.0 + exp(-x));
-}
-
-double sigmoid_derivative(double x) {
-    double s = 1.0 / (1.0 + exp(-x));
-    return s * (1.0 - s);
-}
 
 Layer::Layer(int current_nodes, int previous_nodes) 
     : weights(current_nodes, previous_nodes), 
@@ -37,7 +30,17 @@ NNMatrix NeuralNetwork::forward(NNMatrix input) {
         layers[i].z = NNMatrix::multiply(layers[i].weights, current_activation);
         layers[i].z.add(layers[i].biases);
         layers[i].a = layers[i].z;
-        layers[i].a.map(sigmoid); // 目前统一使用 Sigmoid
+
+        // 🌟 核心修改：区分输出层和隐藏层
+        if (i == layers.size() - 1) {
+            layers[i].a.map(sigmoid); // 输出层固定用 Sigmoid
+        } else {
+            // 隐藏层根据用户配置选择
+            if (hidden_activation == RELU) layers[i].a.map(relu);
+            else if (hidden_activation == TANH) layers[i].a.map(tanh_act);
+            else layers[i].a.map(sigmoid);
+        }
+        
         current_activation = layers[i].a;
     }
     return current_activation;
@@ -49,7 +52,16 @@ void NeuralNetwork::train(NNMatrix input, NNMatrix target) {
 
     for (int i = layers.size() - 1; i >= 0; i--) {
         NNMatrix gradients = layers[i].z; 
-        gradients.map(sigmoid_derivative);
+        
+        // 🌟 核心修改：反向求导时，必须严格对应前向传播时的函数
+        if (i == layers.size() - 1) {
+            gradients.map(sigmoid_derivative);
+        } else {
+            if (hidden_activation == RELU) gradients.map(relu_derivative);
+            else if (hidden_activation == TANH) gradients.map(tanh_derivative);
+            else gradients.map(sigmoid_derivative);
+        }
+        
         gradients.multiply_elements(errors);
         
         // 应用学习率

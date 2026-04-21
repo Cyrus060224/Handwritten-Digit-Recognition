@@ -1,22 +1,41 @@
-#ifndef DATA_LOADER_H
-#define DATA_LOADER_H
+#ifndef ACTIVATIONS_H
+#define ACTIVATIONS_H
 
-#include "NNMatrix.h"
-#include <string>
-#include <vector>
+#include <cmath>
 
-using namespace std;
+// ==========================================
+// 1. Sigmoid 激活函数
+// ==========================================
+inline double sigmoid(double x) {
+    return 1.0 / (1.0 + exp(-x));
+}
 
-struct MNISTData {
-    vector<NNMatrix> images;
-    vector<NNMatrix> labels;
-}; // <--- 之前可能就是漏了这个分号导致你报错
+inline double sigmoid_derivative(double x) {
+    double s = sigmoid(x);
+    return s * (1.0 - s);
+}
 
-class DataLoader {
-public:
-    static MNISTData load_mnist(string image_path, string label_path);
-private:
-    static int reverse_int(int i);
-}; // <--- 还有这个分号
+// ==========================================
+// 2. ReLU 激活函数
+// ==========================================
+inline double relu(double x) {
+    return x > 0 ? x : 0.0;
+}
+
+inline double relu_derivative(double x) {
+    return x > 0 ? 1.0 : 0.0;
+}
+
+// ==========================================
+// 3. Tanh 激活函数
+// ==========================================
+inline double tanh_act(double x) {
+    return tanh(x);
+}
+
+inline double tanh_derivative(double x) {
+    double t = tanh(x);
+    return 1.0 - t * t;
+}
 
 #endif
