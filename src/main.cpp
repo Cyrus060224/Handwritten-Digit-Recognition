@@ -123,13 +123,12 @@ struct SearchConfig {
 };
 
 int main() {
-    // 经典尺寸回归
+    // 保持 1200x900 经典尺寸
     const int screenWidth = 1200;
     const int screenHeight = 900; 
     InitWindow(screenWidth, screenHeight, "NoobNetwork - Pro Compact Suite");
     SetTargetFPS(60);
     
-    // UI 文字全局缩小
     GuiSetStyle(DEFAULT, TEXT_SIZE, 15); 
 
     // --- UI 控制变量 ---
@@ -198,7 +197,7 @@ int main() {
         bool isProcessing = isTrainingState || isAutoSearching;
 
         // ============================================================
-        // 引擎训练循环 (格式完全展开)
+        // 引擎训练循环 (完全展开版)
         // ============================================================
         if (isProcessing && !train_data.images.empty()) {
             int frame_processing_size = 250; 
@@ -239,7 +238,6 @@ int main() {
 
                 nn.accumulate_gradients(input, target);
                 
-                // 权重更新
                 if (nn.accumulated_samples >= target_batch_size) {
                     nn.apply_gradients();
                     double avg_update_loss = accumulated_loss_for_gradient / (double)target_batch_size;
@@ -282,7 +280,6 @@ int main() {
                         accHistory.erase(accHistory.begin());
                     }
 
-                    // 早停逻辑
                     if (isTrainingState && enableEarlyStopping) {
                         if (displayLoss < best_val_loss - 0.001f) {
                             best_val_loss = displayLoss;
@@ -304,7 +301,6 @@ int main() {
                     metric_loss_accum = 0.0;
                 }
 
-                // 批次游标推进
                 currentImgIdx++;
                 int limit = isAutoSearching ? (int)currentFolds[foldIdx].train_indices.size() : totalSamples;
 
@@ -318,7 +314,6 @@ int main() {
                     }
                     
                     if (isAutoSearching && currentEpoch >= 1) { 
-                        // 交叉验证计分
                         float vAcc = 0;
                         for(int vIdx : currentFolds[foldIdx].val_indices) {
                             if(nn.predict(train_data.images[vIdx]) == nn.predict(train_data.images[vIdx])) {
@@ -415,25 +410,29 @@ int main() {
         float cY = 85.0f;
         float rowHeight = 40.0f; 
 
-        GuiLabel({ cpX + 20, cY, 110, 30 }, "Activation:");
-        GuiToggleGroup({ cpX + 110, cY, 200, 30 }, "SIGMOID;RELU;TANH", &activeAct); 
-        GuiLabel({ cpX + 330, cY, 120, 30 }, "Optimizer:");
-        GuiToggleGroup({ cpX + 410, cY, 230, 30 }, "SGD;MINI-BATCH;BGD", &activeOpt); 
-
-        cY += rowHeight;
-        GuiLabel({ cpX + 20, cY, 100, 30 }, "Hidden L1:");
-        if (GuiValueBox({ cpX + 110, cY, 80, 30 }, NULL, &h1Nodes, 10, 512, h1EditMode)) h1EditMode = !h1EditMode;
-        GuiLabel({ cpX + 210, cY, 100, 30 }, "Hidden L2:");
-        if (GuiValueBox({ cpX + 290, cY, 80, 30 }, NULL, &h2Nodes, 0, 512, h2EditMode)) h2EditMode = !h2EditMode;
+        // 🌟 核心修复 1: GuiToggleGroup 宽度为“单按钮宽度”。
+        // Activation 有 3 个选项，每个给 70，总宽度 210。结束于 cpX + 100 + 210 = cpX + 310
+        GuiLabel({ cpX + 20, cY, 80, 30 }, "Activation:");
+        GuiToggleGroup({ cpX + 100, cY, 70, 30 }, "SIGMOID;RELU;TANH", &activeAct); 
         
-        GuiLabel({ cpX + 390, cY, 80, 30 }, "Dropout:");
-        GuiSliderBar({ cpX + 460, cY, 130, 30 }, NULL, NULL, &dropoutRate, 0.0f, 0.5f);
-        DrawText(TextFormat("%.2f", dropoutRate), (int)cpX + 600, (int)cY + 8, 16, DARKBLUE);
+        // Optimizer 有 3 个选项，每个给 80，总宽度 240。结束于 cpX + 390 + 240 = cpX + 630。完美在 650 内部。
+        GuiLabel({ cpX + 320, cY, 70, 30 }, "Optimizer:");
+        GuiToggleGroup({ cpX + 390, cY, 80, 30 }, "SGD;MINI-BATCH;BGD", &activeOpt); 
 
         cY += rowHeight;
-        GuiLabel({ cpX + 20, cY, 100, 30 }, "Max Epochs:");
-        if (GuiValueBox({ cpX + 110, cY, 80, 30 }, NULL, &maxEpochs, 1, 100, maxEpochEdit)) maxEpochEdit = !maxEpochEdit;
-        GuiCheckBox({ cpX + 210, cY + 5, 20, 20 }, "Enable Early Stopping Mechanism", &enableEarlyStopping);
+        GuiLabel({ cpX + 20, cY, 80, 30 }, "Hidden L1:");
+        if (GuiValueBox({ cpX + 100, cY, 70, 30 }, NULL, &h1Nodes, 10, 512, h1EditMode)) h1EditMode = !h1EditMode;
+        GuiLabel({ cpX + 180, cY, 80, 30 }, "Hidden L2:");
+        if (GuiValueBox({ cpX + 260, cY, 70, 30 }, NULL, &h2Nodes, 0, 512, h2EditMode)) h2EditMode = !h2EditMode;
+        
+        GuiLabel({ cpX + 340, cY, 70, 30 }, "Dropout:");
+        GuiSliderBar({ cpX + 410, cY, 120, 30 }, NULL, NULL, &dropoutRate, 0.0f, 0.5f);
+        DrawText(TextFormat("%.2f", dropoutRate), (int)cpX + 540, (int)cY + 8, 16, DARKBLUE);
+
+        cY += rowHeight;
+        GuiLabel({ cpX + 20, cY, 80, 30 }, "Max Epochs:");
+        if (GuiValueBox({ cpX + 100, cY, 70, 30 }, NULL, &maxEpochs, 1, 100, maxEpochEdit)) maxEpochEdit = !maxEpochEdit;
+        GuiCheckBox({ cpX + 190, cY + 5, 20, 20 }, "Enable Early Stopping Mechanism", &enableEarlyStopping);
 
         cY += rowHeight + 10.0f;
         if (GuiButton({ cpX + 20, cY, 290, 40 }, isTrainingState ? "STOP" : "START MANUAL TRAINING")) {
@@ -511,21 +510,24 @@ int main() {
         
         cY += 30.0f;
         GuiLabel({ cpX + 20, cY, 80, 30 }, "LR Range:");
-        if (GuiValueBox({ cpX + 110, cY, 60, 30 }, NULL, &lrMinInt, 1, 100, lrMinEdit)) lrMinEdit = !lrMinEdit; 
-        DrawText("-", (int)cpX + 180, (int)cY + 5, 20, GRAY);
-        if (GuiValueBox({ cpX + 200, cY, 60, 30 }, NULL, &lrMaxInt, 1, 100, lrMaxEdit)) lrMaxEdit = !lrMaxEdit;
+        if (GuiValueBox({ cpX + 100, cY, 60, 30 }, NULL, &lrMinInt, 1, 100, lrMinEdit)) lrMinEdit = !lrMinEdit; 
+        DrawText("-", (int)cpX + 165, (int)cY + 5, 20, GRAY);
+        if (GuiValueBox({ cpX + 180, cY, 60, 30 }, NULL, &lrMaxInt, 1, 100, lrMaxEdit)) lrMaxEdit = !lrMaxEdit;
 
-        GuiLabel({ cpX + 290, cY, 80, 30 }, "H1 Range:");
-        if (GuiValueBox({ cpX + 370, cY, 70, 30 }, NULL, &hMin, 10, 512, hMinEdit)) hMinEdit = !hMinEdit;
-        DrawText("-", (int)cpX + 450, (int)cY + 5, 20, GRAY); 
-        if (GuiValueBox({ cpX + 470, cY, 70, 30 }, NULL, &hMax, 10, 512, hMaxEdit)) hMaxEdit = !hMaxEdit;
+        GuiLabel({ cpX + 260, cY, 80, 30 }, "H1 Range:");
+        if (GuiValueBox({ cpX + 340, cY, 60, 30 }, NULL, &hMin, 10, 512, hMinEdit)) hMinEdit = !hMinEdit;
+        DrawText("-", (int)cpX + 405, (int)cY + 5, 20, GRAY); 
+        if (GuiValueBox({ cpX + 420, cY, 60, 30 }, NULL, &hMax, 10, 512, hMaxEdit)) hMaxEdit = !hMaxEdit;
 
         cY += rowHeight;
-        GuiLabel({ cpX + 20, cY, 80, 30 }, "Strategy:");
-        GuiToggleGroup({ cpX + 110, cY, 150, 30 }, "GRID;RANDOM", &activeSearchType);
         
-        GuiLabel({ cpX + 290, cY, 80, 30 }, "K-Fold:");
-        if (GuiValueBox({ cpX + 370, cY, 70, 30 }, NULL, &k_folds, 2, 10, kFoldEdit)) kFoldEdit = !kFoldEdit;
+        // 🌟 核心修复 2: Strategy 有 2 个选项，每个给 90，总宽度 180。结束于 cpX + 90 + 180 = cpX + 270
+        GuiLabel({ cpX + 20, cY, 70, 30 }, "Strategy:");
+        GuiToggleGroup({ cpX + 90, cY, 90, 30 }, "GRID;RANDOM", &activeSearchType);
+        
+        // K-Fold 紧随其后，从 cpX + 290 开始，完美避开
+        GuiLabel({ cpX + 290, cY, 60, 30 }, "K-Fold:");
+        if (GuiValueBox({ cpX + 350, cY, 80, 30 }, NULL, &k_folds, 2, 10, kFoldEdit)) kFoldEdit = !kFoldEdit;
 
         cY += rowHeight + 5;
         if (GuiButton({ cpX + 20, cY, 240, 40 }, isAutoSearching ? "STOP SEARCH" : "RUN AUTO SEARCH")) {
