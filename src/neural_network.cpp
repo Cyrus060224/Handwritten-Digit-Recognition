@@ -2,7 +2,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
-#include "activations.h" // 🌟 引入我们刚才写的武器库
+#include "activations.h" 
 
 using namespace std;
 
@@ -10,43 +10,45 @@ Layer::Layer(int current_nodes, int previous_nodes)
     : weights(current_nodes, previous_nodes), 
       biases(current_nodes, 1),
       z(current_nodes, 1), 
-      a(current_nodes, 1) 
+      a(current_nodes, 1),
+      dropout_mask(current_nodes, 1) 
 {
     weights.randomize();
     biases.randomize();
 }
 
-NeuralNetwork::NeuralNetwork(vector<int> topology, double lr, ActivationType act) 
-    : learningRate(lr), hidden_activation(act) {
+NeuralNetwork::NeuralNetwork(vector<int> topology, double lr, ActivationType act, double keep_rate) 
+    : learningRate(lr), hidden_activation(act), keep_rate(keep_rate) {
     for (size_t i = 1; i < topology.size(); i++) {
         layers.push_back(Layer(topology[i], topology[i - 1]));
     }
-    reset_gradients(); // 🌟 初始化梯度池
+    reset_gradients(); 
 }
 
-NNMatrix NeuralNetwork::forward(NNMatrix input) {
+NNMatrix NeuralNetwork::forward(NNMatrix input, bool is_training) {
     NNMatrix current_activation = input;
     for (size_t i = 0; i < layers.size(); i++) {
         layers[i].z = NNMatrix::multiply(layers[i].weights, current_activation);
         layers[i].z.add(layers[i].biases);
         layers[i].a = layers[i].z;
 
-        // 🌟 核心修改：区分输出层和隐藏层
         if (i == layers.size() - 1) {
-            layers[i].a.map(sigmoid); // 输出层固定用 Sigmoid
+            layers[i].a.map(sigmoid); 
         } else {
-            // 隐藏层根据用户配置选择
             if (hidden_activation == RELU) layers[i].a.map(relu);
             else if (hidden_activation == TANH) layers[i].a.map(tanh_act);
             else layers[i].a.map(sigmoid);
+            
+            if (is_training && keep_rate < 1.0) {
+                layers[i].dropout_mask = NNMatrix::generate_dropout_mask(layers[i].a.rows, layers[i].a.cols, keep_rate);
+                layers[i].a.multiply_elements(layers[i].dropout_mask);
+            }
         }
-        
         current_activation = layers[i].a;
     }
     return current_activation;
 }
 
-// 🌟 1. 清空梯度池
 void NeuralNetwork::reset_gradients() {
     weight_gradients_acc.clear();
     bias_gradients_acc.clear();
@@ -57,21 +59,24 @@ void NeuralNetwork::reset_gradients() {
     accumulated_samples = 0;
 }
 
-// 🌟 2. 累加梯度（将每张图算出的梯度缓存起来，暂不更新权重）
 void NeuralNetwork::accumulate_gradients(NNMatrix input, NNMatrix target) {
-    NNMatrix output = forward(input);
+    NNMatrix output = forward(input, true); 
     NNMatrix errors = NNMatrix::subtract(target, output);
 
-    for (int i = layers.size() - 1; i >= 0; i--) {
+    // 🌟 修复警告：显式转换为 int，防止 size_t 减法溢出
+    for (int i = (int)layers.size() - 1; i >= 0; i--) {
         NNMatrix gradients = layers[i].z; 
         
-        // 反向求导严格对应前向传播的激活函数
-        if (i == layers.size() - 1) {
+        if (i == (int)layers.size() - 1) {
             gradients.map(sigmoid_derivative);
         } else {
             if (hidden_activation == RELU) gradients.map(relu_derivative);
             else if (hidden_activation == TANH) gradients.map(tanh_derivative);
             else gradients.map(sigmoid_derivative);
+            
+            if (keep_rate < 1.0) {
+                gradients.multiply_elements(layers[i].dropout_mask);
+            }
         }
         
         gradients.multiply_elements(errors);
@@ -79,7 +84,6 @@ void NeuralNetwork::accumulate_gradients(NNMatrix input, NNMatrix target) {
         NNMatrix prev_activation_T = (i == 0) ? input.transpose() : layers[i - 1].a.transpose();
         NNMatrix deltas = NNMatrix::multiply(gradients, prev_activation_T);
 
-        // 把计算好的单次梯度丢进池子里累加
         weight_gradients_acc[i].add(deltas);
         bias_gradients_acc[i].add(gradients);
 
@@ -89,33 +93,28 @@ void NeuralNetwork::accumulate_gradients(NNMatrix input, NNMatrix target) {
     accumulated_samples++;
 }
 
-// 🌟 3. 应用梯度（取平均值并统一更新权重，用于 Mini-Batch 和 BGD）
 void NeuralNetwork::apply_gradients() {
     if (accumulated_samples == 0) return;
     
     for (size_t i = 0; i < layers.size(); i++) {
-        // 计算批次的平均学习步长
         double lr = learningRate / accumulated_samples; 
         
-        // 将累加池里的梯度统一乘以学习率
         weight_gradients_acc[i].map([lr](double x) { return x * lr; });
         bias_gradients_acc[i].map([lr](double x) { return x * lr; });
 
-        // 统一更新模型权重和偏置
         layers[i].weights.add(weight_gradients_acc[i]);
         layers[i].biases.add(bias_gradients_acc[i]);
     }
-    reset_gradients(); // 用完后清空池子，准备装下一批数据
+    reset_gradients(); 
 }
 
-// 🌟 兼容性保留：将原本的 train 函数重构成先累加再更新，等价于 SGD 模式
 void NeuralNetwork::train(NNMatrix input, NNMatrix target) {
     accumulate_gradients(input, target);
     apply_gradients();
 }
 
 int NeuralNetwork::predict(NNMatrix input) {
-    NNMatrix output = forward(input);
+    NNMatrix output = forward(input, false); // 🌟 预测时禁用 Dropout
     int maxIndex = 0;
     double maxValue = output.data[0][0];
     for (int i = 1; i < 10; i++) {

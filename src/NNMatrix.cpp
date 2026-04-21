@@ -70,3 +70,23 @@ NNMatrix NNMatrix::transpose() const {
     }
     return result;
 }
+
+// 将这段代码直接加在 NNMatrix.cpp 的最下面
+
+NNMatrix NNMatrix::generate_dropout_mask(int r, int c, double keep_probability) {
+    NNMatrix mask(r, c);
+    static mt19937 gen(random_device{}()); // 随机数引擎
+    uniform_real_distribution<double> dist(0.0, 1.0);
+    
+    for (int i = 0; i < r; i++) {
+        for (int j = 0; j < c; j++) {
+            // 🌟 核心：如果保留，则放大 1/p 倍；如果丢弃，则为 0
+            if (dist(gen) < keep_probability) {
+                mask.data[i][j] = 1.0 / keep_probability;
+            } else {
+                mask.data[i][j] = 0.0;
+            }
+        }
+    }
+    return mask;
+}
