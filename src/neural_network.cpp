@@ -154,7 +154,7 @@ void NeuralNetwork::save_model(string filename) {
 void NeuralNetwork::load_model(string filename) {
     ifstream in(filename);
     if (!in.is_open()) {
-        cerr << "错误：找不到模型文件 " << filename << endl;
+        cerr << "Error: Model file not found: " << filename << endl;
         return;
     }
 
@@ -177,5 +177,5 @@ void NeuralNetwork::load_model(string filename) {
         layers.push_back(L);
     }
     in.close();
-    cout << "✅ 模型加载成功，记忆已恢复！" << endl;
+    cout << "Model loaded successfully. Weights restored!" << endl;
 }
