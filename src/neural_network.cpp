@@ -6,7 +6,6 @@
 
 using namespace std;
 
-
 Layer::Layer(int current_nodes, int previous_nodes) 
     : weights(current_nodes, previous_nodes), 
       biases(current_nodes, 1),
@@ -22,6 +21,7 @@ NeuralNetwork::NeuralNetwork(vector<int> topology, double lr, ActivationType act
     for (size_t i = 1; i < topology.size(); i++) {
         layers.push_back(Layer(topology[i], topology[i - 1]));
     }
+    reset_gradients(); // 🌟 初始化梯度池
 }
 
 NNMatrix NeuralNetwork::forward(NNMatrix input) {
@@ -46,14 +46,26 @@ NNMatrix NeuralNetwork::forward(NNMatrix input) {
     return current_activation;
 }
 
-void NeuralNetwork::train(NNMatrix input, NNMatrix target) {
+// 🌟 1. 清空梯度池
+void NeuralNetwork::reset_gradients() {
+    weight_gradients_acc.clear();
+    bias_gradients_acc.clear();
+    for (const auto& L : layers) {
+        weight_gradients_acc.push_back(NNMatrix(L.weights.rows, L.weights.cols));
+        bias_gradients_acc.push_back(NNMatrix(L.biases.rows, L.biases.cols));
+    }
+    accumulated_samples = 0;
+}
+
+// 🌟 2. 累加梯度（将每张图算出的梯度缓存起来，暂不更新权重）
+void NeuralNetwork::accumulate_gradients(NNMatrix input, NNMatrix target) {
     NNMatrix output = forward(input);
     NNMatrix errors = NNMatrix::subtract(target, output);
 
     for (int i = layers.size() - 1; i >= 0; i--) {
         NNMatrix gradients = layers[i].z; 
         
-        // 🌟 核心修改：反向求导时，必须严格对应前向传播时的函数
+        // 反向求导严格对应前向传播的激活函数
         if (i == layers.size() - 1) {
             gradients.map(sigmoid_derivative);
         } else {
@@ -64,22 +76,42 @@ void NeuralNetwork::train(NNMatrix input, NNMatrix target) {
         
         gradients.multiply_elements(errors);
         
-        // 应用学习率
-        for (int r = 0; r < gradients.rows; r++) {
-            for (int c = 0; c < gradients.cols; c++) {
-                gradients.data[r][c] *= learningRate;
-            }
-        }
-
         NNMatrix prev_activation_T = (i == 0) ? input.transpose() : layers[i - 1].a.transpose();
         NNMatrix deltas = NNMatrix::multiply(gradients, prev_activation_T);
 
-        layers[i].weights.add(deltas);
-        layers[i].biases.add(gradients);
+        // 把计算好的单次梯度丢进池子里累加
+        weight_gradients_acc[i].add(deltas);
+        bias_gradients_acc[i].add(gradients);
 
         NNMatrix weights_T = layers[i].weights.transpose();
         errors = NNMatrix::multiply(weights_T, errors);
     }
+    accumulated_samples++;
+}
+
+// 🌟 3. 应用梯度（取平均值并统一更新权重，用于 Mini-Batch 和 BGD）
+void NeuralNetwork::apply_gradients() {
+    if (accumulated_samples == 0) return;
+    
+    for (size_t i = 0; i < layers.size(); i++) {
+        // 计算批次的平均学习步长
+        double lr = learningRate / accumulated_samples; 
+        
+        // 将累加池里的梯度统一乘以学习率
+        weight_gradients_acc[i].map([lr](double x) { return x * lr; });
+        bias_gradients_acc[i].map([lr](double x) { return x * lr; });
+
+        // 统一更新模型权重和偏置
+        layers[i].weights.add(weight_gradients_acc[i]);
+        layers[i].biases.add(bias_gradients_acc[i]);
+    }
+    reset_gradients(); // 用完后清空池子，准备装下一批数据
+}
+
+// 🌟 兼容性保留：将原本的 train 函数重构成先累加再更新，等价于 SGD 模式
+void NeuralNetwork::train(NNMatrix input, NNMatrix target) {
+    accumulate_gradients(input, target);
+    apply_gradients();
 }
 
 int NeuralNetwork::predict(NNMatrix input) {

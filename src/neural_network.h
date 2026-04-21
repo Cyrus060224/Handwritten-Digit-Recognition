@@ -8,7 +8,6 @@
 
 using namespace std;
 
-// 预留激活函数类型，方便后续扩展
 enum ActivationType {
     SIGMOID,
     RELU,
@@ -26,20 +25,26 @@ struct Layer {
 struct NeuralNetwork {
     vector<Layer> layers;
     double learningRate;
-    ActivationType hidden_activation; // 记录隐藏层激活函数类型
+    ActivationType hidden_activation;
+
+    // 🌟 新增：梯度累加池，用于支持 Mini-Batch 和 BGD
+    vector<NNMatrix> weight_gradients_acc;
+    vector<NNMatrix> bias_gradients_acc;
+    int accumulated_samples;
 
     NeuralNetwork(vector<int> topology, double lr = 0.01, ActivationType act = SIGMOID);
     
     NNMatrix forward(NNMatrix input);
     void train(NNMatrix input, NNMatrix target);
     int predict(NNMatrix input); 
-
-    // --- 核心：测试集准确率评估 ---
     double get_accuracy(const MNISTData& data);
-
-    // --- 模型持久化 ---
     void save_model(string filename);
     void load_model(string filename);
+
+    // 🌟 新增：底层优化器核心方法
+    void reset_gradients();
+    void accumulate_gradients(NNMatrix input, NNMatrix target);
+    void apply_gradients();
 };
 
 #endif
