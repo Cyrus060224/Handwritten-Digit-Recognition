@@ -45,3 +45,8 @@ build/
 *.o
 *.obj
 bin/
+
+build/
+.vs/
+.vscode/
+*.exe
