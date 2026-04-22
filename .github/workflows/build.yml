@@ -1,0 +1,52 @@
+name: 跨平台自动打包发布
+
+on:
+  push:
+    tags:
+      - 'v*' # 只要你推送以 v 开头的标签（如 v1.0.1），就会触发自动打包
+
+jobs:
+  build:
+    name: 在 ${{ matrix.os }} 上编译
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # 同时开启 Windows 和 Mac 两个“云端虚拟机”
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive # 如果你有子模块也会自动处理
+
+      - name: 配置 CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: 执行编译
+        run: cmake --build build --config Release
+
+      - name: 打包成品 (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          mkdir publish
+          copy build\Release\NoobNetwork.exe publish\
+          xcopy /E /I data publish\data
+          powershell Compress-Archive -Path publish\* -DestinationPath NoobNetwork-Windows.zip
+
+      - name: 打包成品 (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          mkdir publish
+          cp build/NoobNetwork publish/
+          cp -r data publish/data
+          zip -r NoobNetwork-macOS.zip publish/*
+
+      - name: 自动创建 GitHub Release 并上传
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            NoobNetwork-Windows.zip
+            NoobNetwork-macOS.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
