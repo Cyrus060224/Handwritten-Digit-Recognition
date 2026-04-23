@@ -481,7 +481,7 @@ int main() {
 
                     if (lossHistory.size() > maxPoints) {
                         lossHistory.erase(lossHistory.begin());
-                        accHistory.erase(lossHistory.begin());
+                        accHistory.erase(accHistory.begin());
                     }
 
                     metric_counter = 0;
@@ -524,7 +524,7 @@ int main() {
                         }
 
                         // 容忍 3 个 Epoch 没有进步就结束
-                        if (patience_counter >= 3) {
+                        if (patience_counter >= MAX_PATIENCE) {
                             isTrainingState = false;
                             triggered_early_stop = true;
                             nn.save_model(model_path);
@@ -540,10 +540,19 @@ int main() {
                         // 计算当前 fold 的验证准确率
                         float vAcc = 0;
                         for(int vIdx : currentFolds[foldIdx].val_indices) {
-                            if(nn.predict(train_data.images[vIdx]) == nn.predict(train_data.images[vIdx])) {
-                                vAcc += 1.0f;
-                            }
+                            int trueLabelIdx = 0;
+                            // 找出真实标签的索引
+                            for(int i = 0; i < 10; i++) {
+                                if(train_data.labels[vIdx].data[i][0] > 0.5f) {
+                                    trueLabelIdx = i;
+                                    break;
+                                }
                         }
+                        // 将预测结果与真实标签索引对比
+                        if(nn.predict(train_data.images[vIdx]) == trueLabelIdx) {
+                            vAcc += 1.0f;
+                        }
+}
                         // 累加当前配置的 K 折平均分
                         searchSpace[searchIdx].score += (vAcc / (float)currentFolds[foldIdx].val_indices.size()) / (float)k_folds;
 
@@ -798,8 +807,21 @@ int main() {
                     } else {
                         // 随机搜索: 在范围内随机采样 3 个配置
                         for(int i=0; i<3; i++) {
-                            float r_lr = lr_min + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX/(lr_max-lr_min)));
-                            int r_h = hMin + rand() % ((hMax - hMin) + 1);
+                            if (lr_max < lr_min) std::swap(lr_min, lr_max);
+                            if (hMax < hMin) std::swap(hMin, hMax);
+
+                            float r_lr = lr_min;
+                            if (lr_max > lr_min) {
+                                // 推荐使用更安全的浮点随机数写法
+                                r_lr = lr_min + static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * (lr_max - lr_min);
+                            }
+
+                            int r_h = hMin;
+                            if (hMax >= hMin) {
+                                // 防止模 0，虽然前面已经 swap 过，但加个保护更安全
+                                int range = (hMax - hMin) + 1;
+                                r_h = hMin + (range > 0 ? (rand() % range) : 0);
+                            }
                             searchSpace.push_back(SearchConfig{(double)r_lr, r_h, RELU, string(TextFormat("Rand LR:%.2f H:%d", r_lr, r_h))});
                         }
                     }
