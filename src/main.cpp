@@ -197,6 +197,8 @@ struct SearchConfig {
     ActivationType act;
     string name;
     float score = 0.0f;
+
+    SearchConfig(double l, int h, ActivationType a, string d) : lr(l), h1(h), act(a), name(d) {}
 };
 
 // ============================================================
@@ -802,8 +804,8 @@ int main() {
                     // [Requirement 8] 生成搜索空间
                     if (activeSearchType == 0) {
                         // 网格搜索: 取范围边界点
-                        searchSpace.push_back(SearchConfig{(double)lr_min, hMin, RELU, string(TextFormat("Grid LR:%.2f H:%d", lr_min, hMin))});
-                        searchSpace.push_back(SearchConfig{(double)lr_max, hMax, RELU, string(TextFormat("Grid LR:%.2f H:%d", lr_max, hMax))});
+                        searchSpace.push_back(SearchConfig((double)lr_min, hMin, RELU, string(TextFormat("Grid LR:%.2f H:%d", lr_min, hMin))));
+                        searchSpace.push_back(SearchConfig((double)lr_max, hMax, RELU, string(TextFormat("Grid LR:%.2f H:%d", lr_max, hMax))));
                     } else {
                         // 随机搜索: 在范围内随机采样 3 个配置
                         for(int i=0; i<3; i++) {
