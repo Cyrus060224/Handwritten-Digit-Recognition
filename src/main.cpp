@@ -2,18 +2,14 @@
  * @file main.cpp
  * @brief NoobNetwork 主程序 -- GUI 交互、训练循环、AutoML 搜索
  *
- * =========================================================================
- * 需求覆盖总览
- * =========================================================================
  * [Requirement 3]  SGD / Mini-Batch / BGD 优化方案选择
- * [Requirement 4]  可设置网络层数及每层神经元个数
- * [Requirement 6]  可设置最大迭代次数、早停
+ * [Requirement 4]  可配置网络层数及每层神经元个数
+ * [Requirement 6]  可配置最大迭代次数、早停
  * [Requirement 7]  K 折交叉验证
  * [Requirement 8]  网格搜索 / 随机搜索超参数优化
  * [Requirement 9]  损失曲线和准确率曲线实时可视化
  * [Requirement 10] 早停 + Dropout + Greedy Bold Driver 自适应学习率
  * [Requirement 12] 训练模块和测试模块（性能评估）
- * =========================================================================
  */
 
 #include <iostream>
@@ -33,25 +29,25 @@
 
 using namespace std;
 
-// ============================================================
-// 辅助函数：文件存在性检查
-// ============================================================
+/**
+ * @brief 检查文件是否存在
+ * @param name 文件路径
+ * @return 文件存在则返回 true
+ */
 bool file_exists(const string& name) {
     struct stat buffer;
     return (stat(name.c_str(), &buffer) == 0);
 }
 
-// ============================================================
-// [Requirement 2] 图像预处理 -- 使手绘数字匹配 MNIST 数据分布
-// ============================================================
 /**
- * @brief 对手绘图像进行预处理，使其与 MNIST 数据集格式一致
+ * @brief 图像预处理
  *
- * 预处理步骤:
- *   1. 边界框裁剪：找到所有非白色像素的最小矩形
+ * [Requirement 2] 将手绘图像预处理为与 MNIST 数据集一致的格式。
+ *
+ * 处理流程:
+ *   1. 边界框裁剪：定位所有非白色像素的最小包围矩形
  *   2. 等比例缩放：将较大边缩放到 20px
  *   3. 居中填充：将缩放后的图像放置到 28x28 白色画布中央
- *   4. 结果：28x28 灰度图，像素值 [0, 255]
  *
  * @param original_img 原始手绘图像
  * @return 预处理后的 28x28 图像
@@ -64,11 +60,10 @@ Image preprocess_image(Image original_img) {
     int maxY = 0;
     bool hasInk = false;
 
-    // 扫描所有像素，找到边界框
     for (int y = 0; y < original_img.height; y++) {
         for (int x = 0; x < original_img.width; x++) {
             Color c = pixels[y * original_img.width + x];
-            if (c.r < 128) { // 深色像素视为"墨水"
+            if (c.r < 128) {
                 hasInk = true;
                 if (x < minX) minX = x;
                 if (x > maxX) maxX = x;
@@ -83,18 +78,14 @@ Image preprocess_image(Image original_img) {
         return GenImageColor(28, 28, WHITE);
     }
 
-    // 裁剪到边界框
     Rectangle bbox = {
-        (float)minX,
-        (float)minY,
-        (float)(maxX - minX + 1),
-        (float)(maxY - minY + 1)
+        (float)minX, (float)minY,
+        (float)(maxX - minX + 1), (float)(maxY - minY + 1)
     };
 
     Image crop_img = ImageCopy(original_img);
     ImageCrop(&crop_img, bbox);
 
-    // 等比例缩放到 20px (较大边)
     int new_w, new_h;
     if (crop_img.width > crop_img.height) {
         new_w = 20;
@@ -108,7 +99,6 @@ Image preprocess_image(Image original_img) {
     if (new_h <= 0) new_h = 1;
     ImageResize(&crop_img, new_w, new_h);
 
-    // 居中填充到 28x28 白色画布
     Image final_img = GenImageColor(28, 28, WHITE);
     int offsetX = (28 - new_w) / 2;
     int offsetY = (28 - new_h) / 2;
@@ -120,25 +110,13 @@ Image preprocess_image(Image original_img) {
     return final_img;
 }
 
-// ============================================================
-// [Requirement 7] K 折交叉验证 -- 数据切分
-// ============================================================
 /**
  * @brief K 折交叉验证索引生成器
  *
- * [Requirement 7] 系统提供采用 k 折交叉验证训练网络及确定网络超参
+ * [Requirement 7] K 折交叉验证
  *
- * K 折交叉验证原理:
- *   1. 将数据集随机打乱后均分为 K 份 (fold)
- *   2. 每次取 1 份作为验证集，其余 K-1 份作为训练集
- *   3. 重复 K 次，每次轮换验证集
- *   4. 最终得分为 K 次验证得分的平均
- *
- * 优点:
- *   - 充分利用有限数据（每份数据既做训练又做验证）
- *   - 减少因随机划分导致的评估偏差
- *
- * 本实现: 使用固定种子 mt19937(1337) 保证可重复性
+ * 将数据集随机打乱后均分为 K 份，每次取 1 份作为验证集，
+ * 其余 K-1 份作为训练集，返回 K 组训练/验证索引。
  *
  * @param total_samples 总样本数
  * @param k 折数
@@ -155,7 +133,7 @@ vector<FoldIndices> get_k_fold_indices(int total_samples, int k) {
         all_indices[i] = i;
     }
 
-    static mt19937 g(1337); // 固定种子保证可重复
+    static mt19937 g(1337);
     shuffle(all_indices.begin(), all_indices.end(), g);
 
     vector<FoldIndices> folds(k);
@@ -176,20 +154,12 @@ vector<FoldIndices> get_k_fold_indices(int total_samples, int k) {
     return folds;
 }
 
-// ============================================================
-// [Requirement 8] AutoML 搜索配置
-// ============================================================
 /**
- * @brief AutoML 搜索空间的单个配置项
+ * @brief AutoML 搜索空间配置项
  *
- * [Requirement 8] 系统提供超参数搜索算法：网格搜索、随机搜索
+ * [Requirement 8] 超参数搜索 - 网格搜索 / 随机搜索
  *
- * 每个配置包含:
- *   - lr:   学习率
- *   - h1:   第一隐藏层神经元数
- *   - act:  激活函数类型
- *   - name: 配置描述（用于 UI 显示）
- *   - score: 交叉验证平均准确率（搜索完成后填充）
+ * 每个配置包含学习率、隐藏层神经元数、激活函数类型和交叉验证平均分。
  */
 struct SearchConfig {
     double lr;
@@ -210,7 +180,7 @@ int main() {
     InitWindow(screenWidth, screenHeight, "NoobNetwork - Pro Complete Edition");
     SetTargetFPS(60);
 
-    // --- 字体加载 ---
+    // 字体加载
     Font customFont = GetFontDefault();
     string font_path = "data/ui_font.ttf";
 
@@ -224,9 +194,7 @@ int main() {
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 15);
 
-    // ============================================================
-    // UI 控制变量
-    // ============================================================
+    // --- UI 控制变量 ---
 
     // [Requirement 4] 网络结构配置
     int h1Nodes = 128;
@@ -270,10 +238,8 @@ int main() {
     string searchStatus = "System Idle";
     vector<FoldIndices> currentFolds;
 
-    // ============================================================
-    // 神经网络初始化
-    // ============================================================
-    // [Requirement 4] 默认拓扑: 784(输入) → 128(隐藏) → 10(输出)
+    // --- 神经网络初始化 ---
+    // [Requirement 4] 默认拓扑: 784 → 128 → 10
     vector<int> topology = {784, h1Nodes, 10};
     NeuralNetwork nn(topology, 0.01);
     bool isModelLoaded = false;
@@ -299,18 +265,14 @@ int main() {
     int activeAct = 0; // 0=Sigmoid, 1=ReLU, 2=Tanh
     int activeOpt = 1; // 0=SGD, 1=Mini-Batch, 2=BGD
 
-    // ============================================================
-    // [Requirement 1] Greedy Bold Driver 状态变量
-    // ============================================================
-    double previous_loss = 999999.0;   // 历史最佳平滑损失
-    double smoothed_loss = 0.0;         // 指数移动平均损失
-    double accumulated_loss_for_gradient = 0.0; // 当前批次损失累加
+    // --- Greedy Bold Driver 状态变量 ---
+    double previous_loss = 999999.0;
+    double smoothed_loss = 0.0;
+    double accumulated_loss_for_gradient = 0.0;
 
-    // ============================================================
-    // [Requirement 9] 实时曲线监控变量
-    // ============================================================
-    vector<float> lossHistory;  // 损失曲线历史
-    vector<float> accHistory;   // 准确率曲线历史
+    // --- 实时曲线监控变量 ---
+    vector<float> lossHistory;
+    vector<float> accHistory;
     const int maxPoints = 200;
     int metric_counter = 0;
     int metric_correct = 0;
@@ -318,7 +280,7 @@ int main() {
     float displayLoss = 0.0f;
     float displayAcc = 0.0f;
 
-    // [Requirement 10] 早停监控变量
+    // --- 早停监控变量 ---
     float best_val_loss = 9999.0f;
     int patience_counter = 0;
     const int MAX_PATIENCE = 5;
@@ -337,30 +299,27 @@ int main() {
 
         bool isProcessing = isTrainingState || isAutoSearching;
 
-        // ============================================================
-        // 引擎训练循环（包含完整的 Greedy Bold Driver 贪心策略）
-        // ============================================================
+        // --- 训练循环 ---
         if (isProcessing && !train_data.images.empty()) {
-            int frame_processing_size = 250; // 每帧处理样本数
+            int frame_processing_size = 250;
 
-            // [Requirement 3] 根据选择的优化器确定批次大小
-            int target_batch_size = (activeOpt == 0) ? 1 :        // SGD: 每样本更新
-                                    ((activeOpt == 1) ? 128 :     // Mini-Batch: 128
-                                    (int)train_data.images.size()); // BGD: 全量
+            // [Requirement 3] 根据优化器确定批次大小
+            int target_batch_size = (activeOpt == 0) ? 1 :
+                                    ((activeOpt == 1) ? 128 :
+                                    (int)train_data.images.size());
 
             for (int b = 0; b < frame_processing_size && (isTrainingState || isAutoSearching); b++) {
 
-                // 获取当前样本索引（AutoML 时使用交叉验证索引）
                 int realIdx = isAutoSearching ? currentFolds[foldIdx].train_indices[currentImgIdx] : currentImgIdx;
 
                 NNMatrix input = train_data.images[realIdx];
                 NNMatrix target = train_data.labels[realIdx];
 
-                // --- 前向传播 ---
+                // 前向传播
                 NNMatrix output = nn.forward(input, true);
                 NNMatrix diff = NNMatrix::subtract(target, output);
 
-                // --- 计算样本损失 (MSE) ---
+                // 计算 MSE 损失
                 double sample_loss = 0.0;
                 for (int r = 0; r < diff.rows; r++) {
                     sample_loss += diff.data[r][0] * diff.data[r][0];
@@ -369,7 +328,7 @@ int main() {
                 accumulated_loss_for_gradient += sample_loss;
                 metric_loss_accum += sample_loss;
 
-                // --- 统计分类正确数 ---
+                // 统计分类正确数
                 int maxIdx = 0;
                 int trueIdx = 0;
                 double maxVal = output.data[0][0];
@@ -387,68 +346,50 @@ int main() {
                     metric_correct++;
                 }
 
-                // --- 累积梯度 ---
+                // 累积梯度（执行反向传播）
                 nn.accumulate_gradients(input, target);
 
-                // ============================================================
-                // 批次权重更新与 Greedy Bold Driver 贪心策略判定
-                // ============================================================
-                // [Requirement 3] 当累积样本数达到目标批次大小时，应用梯度
+                // --- 批次权重更新与 Greedy Bold Driver ---
                 if (nn.accumulated_samples >= target_batch_size) {
 
-                    // [Requirement 1] 贪心快照：在应用新梯度前保存权重
+                    // [Requirement 1] 贪心快照
                     if (enableGreedy && !isAutoSearching) {
                         nn.save_checkpoint();
                     }
 
-                    // 应用梯度更新
                     nn.apply_gradients();
 
                     // 计算平均批次损失
                     double avg_update_loss = accumulated_loss_for_gradient / (double)target_batch_size;
                     accumulated_loss_for_gradient = 0.0;
 
-                    // 指数移动平均平滑损失（EMA，alpha=0.05）
-                    // S_t = alpha * current + (1-alpha) * S_{t-1}
+                    // 指数移动平均平滑损失 (EMA, alpha=0.05)
                     if (smoothed_loss == 0.0) {
                         smoothed_loss = avg_update_loss;
                     } else {
                         smoothed_loss = 0.05 * avg_update_loss + 0.95 * smoothed_loss;
                     }
 
-                    // ============================================================
-                    // [Requirement 1] Greedy Bold Driver 贪心自适应学习率策略
-                    // ============================================================
+                    // --- Greedy Bold Driver 贪心自适应学习率策略 ---
                     //
-                    // 核心思想:
-                    //   在每次权重更新后，检查损失是否下降。
-                    //   - 如果损失下降：接受更新，增大学习率（加速收敛）
-                    //   - 如果损失上升超过容忍度：撤销更新，缩小学习率（防止发散）
-                    //
-                    // 5% 噪声容忍度:
-                    //   smoothed_loss <= previous_loss * 1.05
-                    //   允许损失在 5% 范围内波动而不触发回滚，避免对随机噪声过度反应。
-                    //
-                    // 权重回溯 (Rollback):
-                    //   当损失恶化时，从快照恢复权重，确保网络永远不会接受
-                    //   导致损失显著上升的更新。
-                    // ============================================================
+                    // 核心逻辑: 检查损失是否下降。
+                    //   下降/轻微波动 → 接受更新，增大学习率
+                    //   明显上升 → 撤销更新（回滚权重），缩小学习率
+                    // 5% 噪声容忍度: 允许 smoothed_loss <= previous_loss * 1.05 不触发回滚
                     if (!isAutoSearching && previous_loss != 999999.0) {
-                        if (smoothed_loss <= previous_loss * 1.05) { // 5% 噪声容忍度
-                            // 情况 A: 损失下降或轻微波动 → 接受更新
+                        if (smoothed_loss <= previous_loss * 1.05) {
                             if (enableGreedy) {
-                                nn.learningRate *= 1.05; // 增大学习率 5%
+                                nn.learningRate *= 1.05;
                             } else {
-                                nn.learningRate *= 1.01; // 保守增大 1%
+                                nn.learningRate *= 1.01;
                             }
-                            previous_loss = smoothed_loss; // 更新历史记录
+                            previous_loss = smoothed_loss;
                         } else {
-                            // 情况 B: 损失明显上升 → 撤销更新
                             if (enableGreedy) {
-                                // [Requirement 1] 贪心策略的权重回溯 (Rollback)
-                                nn.load_checkpoint();       // 恢复快照前的权重
-                                nn.learningRate *= 0.5;     // 学习率减半
-                                smoothed_loss = previous_loss; // 恢复被恶化的 Loss 记录
+                                // 权重回滚 + 学习率减半
+                                nn.load_checkpoint();
+                                nn.learningRate *= 0.5;
+                                smoothed_loss = previous_loss;
                             } else {
                                 nn.learningRate *= 0.99;
                                 previous_loss = smoothed_loss;
@@ -459,14 +400,11 @@ int main() {
                         if (nn.learningRate > 0.1) nn.learningRate = 0.1;
                         if (nn.learningRate < 0.0001) nn.learningRate = 0.0001;
                     } else {
-                        // 初始化第一帧
                         previous_loss = smoothed_loss;
                     }
                 }
 
-                // ============================================================
-                // [Requirement 9] UI 曲线独立采样器
-                // ============================================================
+                // --- 曲线采样 ---
                 metric_counter++;
                 if (metric_counter >= 300) {
                     float avg_metric_loss = (float)(metric_loss_accum / 300.0);
@@ -491,7 +429,7 @@ int main() {
                     metric_loss_accum = 0.0;
                 }
 
-                // --- 批次游标推进 ---
+                // 批次游标推进
                 currentImgIdx++;
                 int limit = isAutoSearching ? (int)currentFolds[foldIdx].train_indices.size() : totalSamples;
 
@@ -499,24 +437,13 @@ int main() {
                     currentImgIdx = 0;
                     currentEpoch++;
 
-                    // 处理剩余未应用梯度
                     if (nn.accumulated_samples > 0) {
                         nn.apply_gradients();
                         accumulated_loss_for_gradient = 0.0;
                     }
 
-                    // ============================================================
-                    // [Requirement 10] 早停 (Early Stopping)
-                    // ============================================================
-                    //
-                    // 原理:
-                    //   监控平滑损失，如果连续 MAX_PATIENCE 个 epoch 没有显著改善
-                    //   (改善幅度 < 0.0001)，则认为网络已收敛，提前结束训练。
-                    //
-                    // 作用:
-                    //   - 防止过拟合（训练时间过长会导致过拟合）
-                    //   - 节省训练时间
-                    // ============================================================
+                    // --- 早停 (Early Stopping) ---
+                    // [Requirement 10] 监控平滑损失，连续 MAX_PATIENCE 个 epoch 无改善则终止训练
                     if (isTrainingState && enableEarlyStopping && !isAutoSearching) {
                         if (smoothed_loss < best_val_loss - 0.0001f) {
                             best_val_loss = smoothed_loss;
@@ -525,7 +452,6 @@ int main() {
                             patience_counter++;
                         }
 
-                        // 容忍 MAX_PATIENCE 个 Epoch 没有进步就结束
                         if (patience_counter >= MAX_PATIENCE) {
                             isTrainingState = false;
                             triggered_early_stop = true;
@@ -535,27 +461,22 @@ int main() {
                         }
                     }
 
-                    // ============================================================
-                    // [Requirement 7] AutoML K 折交叉验证逻辑
-                    // ============================================================
+                    // --- AutoML K 折交叉验证 ---
                     if (isAutoSearching && currentEpoch >= 1) {
                         // 计算当前 fold 的验证准确率
                         float vAcc = 0;
                         for(int vIdx : currentFolds[foldIdx].val_indices) {
                             int trueLabelIdx = 0;
-                            // 找出真实标签的索引
                             for(int i = 0; i < 10; i++) {
                                 if(train_data.labels[vIdx].data[i][0] > 0.5f) {
                                     trueLabelIdx = i;
                                     break;
                                 }
+                            }
+                            if(nn.predict(train_data.images[vIdx]) == trueLabelIdx) {
+                                vAcc += 1.0f;
+                            }
                         }
-                        // 将预测结果与真实标签索引对比
-                        if(nn.predict(train_data.images[vIdx]) == trueLabelIdx) {
-                            vAcc += 1.0f;
-                        }
-}
-                        // 累加当前配置的 K 折平均分
                         searchSpace[searchIdx].score += (vAcc / (float)currentFolds[foldIdx].val_indices.size()) / (float)k_folds;
 
                         foldIdx++;
@@ -563,7 +484,6 @@ int main() {
                             foldIdx = 0;
                             searchIdx++;
 
-                            // 所有配置搜索完成
                             if (searchIdx >= (int)searchSpace.size()) {
                                 isAutoSearching = false;
                                 int bestIdx = 0;
@@ -583,7 +503,7 @@ int main() {
                         }
                         break;
                     }
-                    // 手动训练：达到最大轮数后保存模型
+                    // 手动训练完成
                     else if (isTrainingState && currentEpoch >= maxEpochs) {
                         isTrainingState = false;
                         nn.save_model(model_path);
@@ -651,11 +571,11 @@ int main() {
         float cY = 85.0f;
         float rowHeight = 40.0f;
 
-        // [Requirement 5] 激活函数选择: Sigmoid / ReLU / Tanh
+        // [Requirement 5] 激活函数选择
         GuiLabel({ cpX + 20, cY, 80, 30 }, "Activation:");
         GuiToggleGroup({ cpX + 100, cY, 70, 30 }, "SIGMOID;RELU;TANH", &activeAct);
 
-        // [Requirement 3] 优化器选择: SGD / Mini-Batch / BGD
+        // [Requirement 3] 优化器选择
         GuiLabel({ cpX + 320, cY, 70, 30 }, "Optimizer:");
         GuiToggleGroup({ cpX + 390, cY, 80, 30 }, "SGD;MINI-BATCH;BGD", &activeOpt);
 
@@ -686,7 +606,6 @@ int main() {
         // 手动训练按钮
         if (GuiButton({ cpX + 20, cY, 290, 40 }, isTrainingState ? "STOP" : "START MANUAL TRAINING")) {
             if (!isTrainingState && !isAutoSearching) {
-                // 懒加载训练数据
                 if (train_data.images.empty()) {
                     BeginDrawing();
                     ClearBackground(RAYWHITE);
@@ -729,7 +648,7 @@ int main() {
             }
         }
 
-        // [Requirement 12] 性能测试按钮（在 10000 张测试图像上评估）
+        // [Requirement 12] 性能测试
         if (GuiButton({ cpX + 330, cY, 290, 40 }, "RUN PERFORMANCE TEST (10K)")) {
             if (test_data.images.empty()) {
                 BeginDrawing();
@@ -757,9 +676,7 @@ int main() {
             DrawText(TextFormat("DIGIT: %d", recognizedDigit), (int)cpX + 480, (int)cY + 15, 20, DARKBLUE);
         }
 
-        // ============================================================
-        // [Requirement 7][8] AutoML 配置区
-        // ============================================================
+        // --- AutoML 配置区 ---
         cY += 65.0f;
         DrawLine((int)cpX + 20, (int)cY, (int)cpX + 620, (int)cY, GRAY);
         cY += 15.0f;
@@ -777,7 +694,7 @@ int main() {
         if (GuiValueBox({ cpX + 420, cY, 60, 30 }, NULL, &hMax, 10, 512, hMaxEdit)) hMaxEdit = !hMaxEdit;
 
         cY += rowHeight;
-        // [Requirement 8] 搜索策略选择: Grid / Random
+        // [Requirement 8] 搜索策略选择
         GuiLabel({ cpX + 20, cY, 70, 30 }, "Strategy:");
         GuiToggleGroup({ cpX + 90, cY, 90, 30 }, "GRID;RANDOM", &activeSearchType);
 
@@ -807,20 +724,18 @@ int main() {
                         searchSpace.push_back(SearchConfig((double)lr_min, hMin, RELU, string(TextFormat("Grid LR:%.2f H:%d", lr_min, hMin))));
                         searchSpace.push_back(SearchConfig((double)lr_max, hMax, RELU, string(TextFormat("Grid LR:%.2f H:%d", lr_max, hMax))));
                     } else {
-                        // 随机搜索: 在范围内随机采样 3 个配置
+                        // 随机搜索
                         for(int i=0; i<3; i++) {
                             if (lr_max < lr_min) std::swap(lr_min, lr_max);
                             if (hMax < hMin) std::swap(hMin, hMax);
 
                             float r_lr = lr_min;
                             if (lr_max > lr_min) {
-                                // 推荐使用更安全的浮点随机数写法
                                 r_lr = lr_min + static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * (lr_max - lr_min);
                             }
 
                             int r_h = hMin;
                             if (hMax >= hMin) {
-                                // 防止模 0，虽然前面已经 swap 过，但加个保护更安全
                                 int range = (hMax - hMin) + 1;
                                 r_h = hMin + (range > 0 ? (rand() % range) : 0);
                             }
@@ -833,7 +748,6 @@ int main() {
                     foldIdx = 0;
                     currentEpoch = 0;
                     currentImgIdx = 0;
-                    // [Requirement 7] 生成 K 折交叉验证索引
                     currentFolds = get_k_fold_indices(60000, k_folds);
 
                     lossHistory.clear();
@@ -851,27 +765,23 @@ int main() {
         }
         DrawText(searchStatus.c_str(), (int)cpX + 280, (int)cY + 12, 16, isAutoSearching ? MAROON : DARKGRAY);
 
-        // ============================================================
-        // [Requirement 9] 底部图表大屏 -- 实时损失曲线和准确率曲线
-        // ============================================================
+        // --- 底部图表：实时损失曲线和准确率曲线 ---
         GuiGroupBox({ 35, 600, 1135, 230 }, "Real-time Metrics Monitor: Loss (Maroon) & Accuracy (Blue)");
         Rectangle graphBox = { 50, 620, 1100, 190 };
         DrawRectangleRec(graphBox, Fade(RAYWHITE, 0.8f));
         DrawRectangleLinesEx(graphBox, 1, LIGHTGRAY);
 
-        // 绘制网格线
         for(int i = 1; i < 4; i++) {
             float yLine = graphBox.y + i * (graphBox.height / 4.0f);
             DrawLineV({graphBox.x, yLine}, {graphBox.x + graphBox.width, yLine}, Fade(GRAY, 0.2f));
         }
 
-        // 绘制曲线
         if (lossHistory.size() > 1) {
             float maxLoss = 1.0f;
             for(float l : lossHistory) {
                 if(l > maxLoss) maxLoss = l;
             }
-            maxLoss *= 1.2f; // 留 20% 顶部空间
+            maxLoss *= 1.2f;
 
             float stepX = graphBox.width / (float)(maxPoints - 1);
 
