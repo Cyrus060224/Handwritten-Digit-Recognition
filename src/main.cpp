@@ -321,7 +321,7 @@ int main() {
     // [Requirement 10] 早停监控变量
     float best_val_loss = 9999.0f;
     int patience_counter = 0;
-    const int MAX_PATIENCE = 15;
+    const int MAX_PATIENCE = 5;
     bool triggered_early_stop = false;
 
     // 绘图画布初始化
@@ -525,7 +525,7 @@ int main() {
                             patience_counter++;
                         }
 
-                        // 容忍 3 个 Epoch 没有进步就结束
+                        // 容忍 MAX_PATIENCE 个 Epoch 没有进步就结束
                         if (patience_counter >= MAX_PATIENCE) {
                             isTrainingState = false;
                             triggered_early_stop = true;
