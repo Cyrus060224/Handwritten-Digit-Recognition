@@ -154,7 +154,7 @@ void NeuralNetwork::accumulate_gradients(NNMatrix input, NNMatrix target) {
 
     for (int i = (int)layers.size() - 1; i >= 0; i--) {
         NNMatrix gradients = layers[i].z;
-
+        //激活函数求导
         if (i == (int)layers.size() - 1) {
             gradients.map(sigmoid_derivative);
         } else {
@@ -204,6 +204,7 @@ void NeuralNetwork::apply_gradients() {
         weight_gradients_acc[i].map([lr](double x) { return x * lr; });
         bias_gradients_acc[i].map([lr](double x) { return x * lr; });
 
+        //修改权重和偏置
         layers[i].weights.add(weight_gradients_acc[i]);
         layers[i].biases.add(bias_gradients_acc[i]);
     }
